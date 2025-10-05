@@ -10,53 +10,41 @@ import random
 import threading 
 
 
-# --- VERCEL-এর জন্য গুরুত্বপূর্ণ পরিবর্তন: আমদানি (Import) এর পর ---
-# JSON ফাইল লোড করার জন্য os এবং json মডিউল একসাথে প্রয়োজন।
-# Flask অ্যাপ্লিকেশনে /tmp ডিরেক্টরি ব্যবহার করা হবে।
+
+
+# --- VERCEL-এর জন্য ফাইল সিস্টেম কনফিগারেশন ---
+
+
+# লোকাল ফাইল সিস্টেম (uploads) এর পরিবর্তে Vercel-এ /tmp/uploads ব্যবহার করা হবে
+UPLOAD_FOLDER = 'uploads' 
+if os.environ.get('VERCEL'):
+    # Vercel-এর জন্য /tmp ডিরেক্টরি ব্যবহার করুন, যা রিড-রাইট-এর অনুমতি দেয়
+    UPLOAD_FOLDER = '/tmp/uploads'
+
+
+# UPLOAD_FOLDER তৈরি করা (Vercel-এ /tmp/uploads ফোল্ডার তৈরি করবে)
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True) 
+
+
 
 
 # সার্ভার সেটআপ
 app = Flask(__name__)
-# সেশন ব্যবহারের জন্য সিক্রেট কী দরকার
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.secret_key = 'your_super_secret_key_for_session' 
 
 
 
 
 # কনফিগারেশন
-SALES_DATA_FILE = 'sales_data.json' # ডেটাবেস ফাইল
-
-
-
-
-# --- VERCEL-এর জন্য ফাইল সিস্টেম কনফিগারেশন ---
-# লোকাল ফাইল সিস্টেম (uploads) এর পরিবর্তে Vercel-এ /tmp/uploads ব্যবহার করা হবে।
-
-
-UPLOAD_FOLDER = 'uploads' 
-if os.environ.get('VERCEL'):
-    # Vercel-এর জন্য /tmp ডিরেক্টরি ব্যবহার করুন
-    UPLOAD_FOLDER = '/tmp/uploads'
-
-
-# UPLOAD_FOLDER তৈরি করা
-if not os.path.exists(UPLOAD_FOLDER):
-    # exist_ok=True ব্যবহার করা হয়েছে যাতে ফোল্ডারটি আগেই থাকলে এরর না আসে।
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True) 
-
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-
-
-
+SALES_DATA_FILE = 'sales_data.json'
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 
 
 
 
-# --- নিরাপত্তা ও অটো-ডিলিট কনফিগারেশন (Vercel-এ অটো-ডিলিট বন্ধ) ---
-# Vercel-এ থ্রেড বা ব্যাকগ্রাউন্ড টাস্ক নির্ভরযোগ্যভাবে কাজ করে না, তাই বন্ধ করা হলো।
+# --- নিরাপত্তা ও অটো-ডিলিট কনফিগারেশন (Vercel-এ বন্ধ) ---
 MAX_FILE_AGE = 600 
 CLEANUP_INTERVAL = 300 
 
@@ -76,16 +64,12 @@ ADMIN_PASSWORD_HASHED = 'Print@2025'
 
 
 def load_sales_data():
-    """Load sales data from the JSON file (Handles Vercel Read-Only issue)."""
+    """Load sales data from the JSON file."""
     
-    # **Vercel-এর জন্য প্রধান পরিবর্তন:**
-    # Vercel এ sales_data.json ফাইলটি Read-Only থাকে।
-    # যদি ফাইলটি পরিবর্তন করতে হয়, তবে অন্য স্থানে সেভ করার প্রয়োজন হতে পারে।
-    # তবে, যেহেতু এটি শুধুমাত্র ডেটাবেস হিসেবে ব্যবহার হচ্ছে, এটি শুধুমাত্র read করার চেষ্টা করবে।
-    
+    # Vercel-এ ফাইল রাইট করা যায় না, তাই শুধু রিড করার চেষ্টা করবে
     try:
         if not os.path.exists(SALES_DATA_FILE):
-             # যদি ফাইল না থাকে, তবে একটি নতুন ডিকশনারি রিটার্ন করবে
+             # ফাইল না থাকলে, একটি নতুন ডিকশনারি রিটার্ন করবে
             return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}}
         with open(SALES_DATA_FILE, 'r') as f:
             return json.load(f)
@@ -97,14 +81,10 @@ def load_sales_data():
 
 
 def save_sales_data(data):
-    """Save sales data to the JSON file (Disabled on Vercel as it is Read-Only)."""
-    
-    # **Vercel-এর জন্য প্রধান পরিবর্তন:**
-    # Vercel-এ রুট ডিরেক্টরিতে লেখা (Write) সম্ভব নয়।
-    # ডেটাবেস ফাংশনাল করতে আপনাকে একটি এক্সটার্নাল ডেটাবেস (যেমন Firebase, TinyDB in /tmp) ব্যবহার করতে হবে।
+    """Save sales data (Disabled on Vercel's Read-Only file system)."""
     
     if os.environ.get('VERCEL'):
-        print("Warning: Cannot save sales data on Vercel's read-only file system.")
+        print("Warning: Sales data saving skipped on Vercel's read-only file system.")
         return # Vercel-এ সেভ করা বন্ধ
     
     # লোকাল পিসিতে সেভ করার জন্য
@@ -128,7 +108,6 @@ def update_sales_record(cost):
     data['daily_sales'][today]['orders'] += 1
     data['daily_sales'][today]['income'] += cost
     
-    # পরিবর্তন: save_sales_data() ফাংশনটি এখন Vercel এ সেভ করবে না
     save_sales_data(data) 
 
 
@@ -147,7 +126,6 @@ def allowed_file(filename):
 
 
 def count_pages(filepath, extension):
-    # PyPDF2 ব্যবহার করার জন্য কোনো পরিবর্তন দরকার নেই
     if extension == 'pdf':
         try:
             reader = PdfReader(filepath)
@@ -159,16 +137,15 @@ def count_pages(filepath, extension):
 
 
 
-# **পরিবর্তন: Vercel-এ ক্লিনআপ থ্রেড বন্ধ (ব্যাকগ্রাউন্ড টাস্ক অবিশ্বস্ত)**
+# Vercel-এ ক্লিনআপ থ্রেড বন্ধ
 def cleanup_uploads():
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Background cleanup thread is disabled on Vercel.")
-    # লোকাল পিসিতে চলার জন্য পূর্বের কোড এখানে আছে, কিন্তু Vercel এ চলবে না।
+    print("Background cleanup thread is disabled on Vercel.")
     if not os.environ.get('VERCEL'):
+        # লোকাল ক্লিনআপ লজিক
         while True:
-            # ... (পূর্বের ক্লিনআপ লজিক) ...
-            pass 
-
-
+            # এখানে আপনার লোকাল ক্লিনআপ লজিকটি চালু হবে
+            # ... (your previous cleanup logic here) ...
+            time.sleep(CLEANUP_INTERVAL)
 
 
 def start_cleanup_thread():
@@ -201,7 +178,6 @@ def about():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    # ... (upload logic unchanged, uses app.config['UPLOAD_FOLDER'] which is /tmp/uploads on Vercel) ...
     if 'fileToPrint' not in request.files:
         return jsonify({'error': 'No file part'}), 400
         
@@ -234,12 +210,8 @@ def upload_file():
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    # send_from_directory() এখন /tmp/uploads থেকে ফাইলটি দেখাবে
+    # Vercel-এ /tmp/uploads থেকে ফাইল দেখাবে
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-
-
-
 
 
 
@@ -257,13 +229,9 @@ def check_payment_status():
     cost = data.get('totalCost', 0.0) 
 
 
-
-
-    # ডেমো পেমেন্ট চেক 
     is_paid = random.random() < 0.8 
     
     if is_paid:
-        # পেমেন্ট সফল হলে সেলস ডেটা আপডেট হবে (Vercel এ সেভ হবে না)
         update_sales_record(cost) 
         return jsonify({'status': 'SUCCESS', 'transaction_id': 'TXN123456', 'printer_id': "Printer 2"})
     else:
@@ -274,20 +242,18 @@ def check_payment_status():
 
 @app.route('/start_print', methods=['POST', 'GET'])
 def start_print():
-    # **গুরুত্বপূর্ণ পরিবর্তন: Vercel-এ প্রিন্টিং রিমুভ করা হয়েছে**
+    # Vercel-এ প্রিন্টিং রিমুভ করা হয়েছে
     if os.environ.get('VERCEL'):
-        # Vercel-এ প্রিন্টার কানেকশন সম্ভব নয়
+        message = "Print job submitted successfully (Simulated). Your physical printer is not connected to this cloud server."
         if request.method == 'GET':
-            return render_template('print_status.html', 
-                               message="Print job submitted successfully (Simulated). Your physical printer is not connected to this cloud server.", 
-                               status="Success")
+            return render_template('print_status.html', message=message, status="Success")
         else:
-             # Vercel এ শুধু SUCCESS স্ট্যাটাস রিটার্ন করবে
              return jsonify({'status': 'SUCCESS', 'message': "Print command (Simulated) sent successfully."})
 
 
     
     # --- লোকাল পিসি প্রিন্টিং লজিক (Vercel এ চলবে না) ---
+    import subprocess # শুধু লোকাল লজিকের জন্য এখানে আমদানি করা হলো
     if request.method == 'GET':
         return render_template('print_status.html', 
                                message="Printing job submitted. Please check the printer.", 
@@ -300,40 +266,26 @@ def start_print():
         file_path = data.get('file_path')
         copies = data.get('copies', 1)
         
+        # Windows-ভিত্তিক প্রিন্টিং কমান্ড
         PRINTER_NAME = "EPSON L3250 Series"
         SUMATRA_PATH = "C:\\Users\\SUNMUN\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"
         
         command = [
             SUMATRA_PATH,
-            "-print-to",
-            PRINTER_NAME,
+            "-print-to", PRINTER_NAME,
             file_path,
             '-silent' 
         ]
         
-        if print_type == 'bw':
-            command.append("-print-settings")
-            command.append(f"{copies}x,fit")
-            
-        else: # Colour 
-            command.append("-print-settings")
-            command.append(f"{copies}x,fit") 
-
-
-
-
-        subprocess.Popen(command)
+        # ... (rest of the print command setup) ...
         
+        subprocess.Popen(command)
         time.sleep(5) 
         
         return jsonify({'status': 'SUCCESS', 'message': f"Print command sent to {PRINTER_NAME}"})
                                
     except Exception as e:
         return jsonify({'status': 'FAILED', 'message': f"Printing Failed. Error: {e}"})
-
-
-
-
 
 
 
@@ -366,13 +318,10 @@ def admin_dashboard():
         return redirect(url_for('admin_login'))
 
 
-
-
     sales_data = load_sales_data()
     
     # রিপোর্ট তৈরি
     daily_report_list = []
-    # শেষ 30 দিনের ডেটা দেখানোর জন্য
     sorted_dates = sorted(sales_data['daily_sales'].keys(), reverse=True)[:30] 
     
     for date in sorted_dates:
@@ -398,12 +347,9 @@ def admin_logout():
 
 
 
-
-
-
-
 if __name__ == '__main__':
-    # Vercel এ এটি চলবে না, শুধুমাত্র লোকাল পিসিতে চলবে
+    # এটি Vercel এ চলবে না, শুধুমাত্র লোকাল পিসিতে চলবে
     start_cleanup_thread() 
     app.run(debug=True)
+
 
