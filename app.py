@@ -1,0 +1,306 @@
+import os
+from flask import Flask, request, render_template, jsonify, redirect, url_for, session
+from PyPDF2 import PdfReader 
+import uuid
+import json 
+import subprocess
+import time 
+import random 
+import threading 
+
+
+# সার্ভার সেটআপ
+app = Flask(__name__)
+# সেশন ব্যবহারের জন্য সিক্রেট কী দরকার
+app.secret_key = 'your_super_secret_key_for_session' 
+
+
+# কনফিগারেশন
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+SALES_DATA_FILE = 'sales_data.json' # নতুন ডেটাবেস ফাইল
+
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+
+ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
+
+
+# --- নিরাপত্তা ও অটো-ডিলিট কনফিগারেশন ---
+MAX_FILE_AGE = 600 
+CLEANUP_INTERVAL = 300 
+
+
+# --- অ্যাডমিন ক্রেডেনশিয়ালস ---
+ADMIN_USERNAME = 'Skymoon'
+ADMIN_PASSWORD_HASHED = 'Print@2025' # বাস্তবে পাসওয়ার্ড হ্যাশ করা উচিত
+
+
+# --- ডেটা হ্যান্ডলিং ফাংশন ---
+
+
+def load_sales_data():
+    """Load sales data from the JSON file."""
+    if not os.path.exists(SALES_DATA_FILE):
+        return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}}
+    with open(SALES_DATA_FILE, 'r') as f:
+        return json.load(f)
+
+
+def save_sales_data(data):
+    """Save sales data to the JSON file."""
+    with open(SALES_DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+
+
+def update_sales_record(cost):
+    """Update sales total and daily record."""
+    data = load_sales_data()
+    data['total_orders'] += 1
+    data['total_income'] += cost
+    
+    # Daily sales record
+    today = time.strftime('%Y-%m-%d')
+    if today not in data['daily_sales']:
+        data['daily_sales'][today] = {"orders": 0, "income": 0.0}
+    
+    data['daily_sales'][today]['orders'] += 1
+    data['daily_sales'][today]['income'] += cost
+    
+    save_sales_data(data)
+
+
+
+
+# --- ফাইল ও ক্লিনআপ ফাংশন (পূর্বের মতোই) ---
+
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def count_pages(filepath, extension):
+    if extension == 'pdf':
+        try:
+            reader = PdfReader(filepath)
+            return len(reader.pages)
+        except Exception:
+            return 1 
+    return 1
+
+
+def cleanup_uploads():
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting background cleanup thread.")
+    while True:
+        try:
+            now = time.time()
+            upload_dir = app.config['UPLOAD_FOLDER']
+            
+            for filename in os.listdir(upload_dir):
+                filepath = os.path.join(upload_dir, filename)
+                
+                if os.path.isdir(filepath):
+                    continue
+                
+                file_age = now - os.path.getmtime(filepath)
+                
+                if file_age > MAX_FILE_AGE:
+                    os.remove(filepath)
+                    print(f"  -> Deleted old file: {filename} (Age: {int(file_age)}s)")
+            
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Cleanup cycle complete. Waiting {CLEANUP_INTERVAL}s...")
+            
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+        
+        time.sleep(CLEANUP_INTERVAL)
+
+
+def start_cleanup_thread():
+    cleanup_thread = threading.Thread(target=cleanup_uploads, daemon=True)
+    cleanup_thread.start()
+
+
+# --- কাস্টমার রুটস ---
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/about')
+def about():
+    return render_template('about.html')
+
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    # ... (upload logic unchanged) ...
+    if 'fileToPrint' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+        
+    file = request.files['fileToPrint']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+        
+    if file and allowed_file(file.filename):
+        original_filename = file.filename
+        extension = original_filename.rsplit('.', 1)[1].lower()
+        unique_filename = str(uuid.uuid4()) + '.' + extension
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        
+        file.save(filepath) 
+        page_count = count_pages(filepath, extension)
+        
+        from flask import url_for 
+        return jsonify({
+            'success': True,
+            'filename': original_filename,
+            'page_count': page_count,
+            'file_path': filepath,
+            'file_url': url_for('uploaded_file', filename=unique_filename) 
+        })
+    else:
+        return jsonify({'error': 'File type not allowed'}), 400
+
+
+from flask import send_from_directory, url_for
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+
+
+@app.route('/payment')
+def payment():
+    return render_template('payment.html')
+
+
+@app.route('/check_payment_status', methods=['POST'])
+def check_payment_status():
+    data = request.get_json()
+    cost = data.get('totalCost', 0.0) 
+
+
+    # ডেমো পেমেন্ট চেক 
+    is_paid = random.random() < 0.8 
+    
+    if is_paid:
+        # পেমেন্ট সফল হলে সেলস ডেটা আপডেট হবে 
+        update_sales_record(cost) 
+        return jsonify({'status': 'SUCCESS', 'transaction_id': 'TXN123456', 'printer_id': "Printer 2"})
+    else:
+        return jsonify({'status': 'PENDING', 'error': 'Payment verification failed by Payment Gateway.'})
+
+
+@app.route('/start_print', methods=['POST', 'GET'])
+def start_print():
+    # ... (print logic unchanged) ...
+    if request.method == 'GET':
+        return render_template('print_status.html', 
+                               message="Printing job submitted. Please check the printer.", 
+                               status="Success")
+
+
+    try:
+        data = request.get_json()
+        print_type = data.get('printType', 'color') 
+        file_path = data.get('file_path')
+        copies = data.get('copies', 1)
+        
+        PRINTER_NAME = "EPSON L3250 Series"
+        SUMATRA_PATH = "C:\\Users\\SUNMUN\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"
+        
+        command = [
+            SUMATRA_PATH,
+            "-print-to",
+            PRINTER_NAME,
+            file_path,
+            '-silent' 
+        ]
+        
+        if print_type == 'bw':
+            command.append("-print-settings")
+            command.append(f"{copies}x,fit")
+            
+        else: # Colour 
+            command.append("-print-settings")
+            command.append(f"{copies}x,fit") 
+
+
+        subprocess.Popen(command)
+        
+        time.sleep(5) 
+        
+        return jsonify({'status': 'SUCCESS', 'message': f"Print command sent to {PRINTER_NAME}"})
+                               
+    except Exception as e:
+        return jsonify({'status': 'FAILED', 'message': f"Printing Failed. Error: {e}"})
+
+
+
+
+# --- অ্যাডমিন রুটস ---
+
+
+@app.route('/admin', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD_HASHED:
+            session['logged_in'] = True
+            return redirect(url_for('admin_dashboard'))
+        else:
+            return render_template('admin_login.html', error='Invalid credentials.')
+            
+    return render_template('admin_login.html')
+
+
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    if not session.get('logged_in'):
+        return redirect(url_for('admin_login'))
+
+
+    sales_data = load_sales_data()
+    
+    # রিপোর্ট তৈরি
+    daily_report_list = []
+    # শেষ 30 দিনের ডেটা দেখানোর জন্য
+    sorted_dates = sorted(sales_data['daily_sales'].keys(), reverse=True)[:30] 
+    
+    for date in sorted_dates:
+        daily_report_list.append({
+            'date': date,
+            'orders': sales_data['daily_sales'][date]['orders'],
+            'income': f"₹{sales_data['daily_sales'][date]['income']:.2f}"
+        })
+        
+    return render_template('admin_dashboard.html', 
+                           total_orders=sales_data['total_orders'],
+                           total_income=f"₹{sales_data['total_income']:.2f}",
+                           daily_reports=daily_report_list)
+
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('admin_login'))
+
+
+
+
+if __name__ == '__main__':
+    start_cleanup_thread() 
+    app.run(debug=True)
+
+
+

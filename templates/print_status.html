@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Print Status</title>
+    <link rel="stylesheet" href="styles.css"> 
+</head>
+<body>
+    <div class="container">
+        <h1 id="statusHeader">Print Status</h1>
+        
+        <div class="message-box" id="messageBox">
+            <p id="statusMessage">{{ message }}</p>
+        </div>
+
+
+        <div class="final-actions">
+            <p>Thank you for using our Automated Print Shop.</p>
+            <button onclick="window.location.href='/'">Place New Order</button>
+        </div>
+    </div>
+
+
+    <script>
+        const status = "{{ status }}"; 
+        const statusHeader = document.getElementById('statusHeader');
+        const messageBox = document.getElementById('messageBox');
+
+
+        if (status === 'Success') {
+            statusHeader.textContent = "Print Job Completed!";
+            messageBox.style.backgroundColor = '#d4edda'; 
+            messageBox.style.color = '#155724';
+        } else if (status === 'Failed') {
+            statusHeader.textContent = "Print Job Failed!";
+            messageBox.style.backgroundColor = '#f8d7da'; 
+            messageBox.style.color = '#721c24';
+        }
+        
+        localStorage.removeItem('printData');
+    </script>
+</body>
+</html>
+
+

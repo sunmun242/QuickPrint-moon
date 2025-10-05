@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Print Shop - Payment</title>
+    <link rel="stylesheet" href="styles.css"> 
+</head>
+<body>
+    <div class="container">
+        <h1>3. Complete Payment</h1>
+        
+        <div class="order-summary step-section">
+            <h2>Order Summary</h2>
+            <p><strong>File Name:</strong> <span id="summaryFileName"></span></p>
+            <p><strong>Print Type:</strong> <span id="summaryPrintType"></span></p>
+            <p><strong>Pages:</strong> <span id="summaryPageCount"></span></p>
+            <p><strong>Copies:</strong> <span id="summaryCopies"></span></p>
+            <hr>
+            <h3 class="total-cost">TOTAL PAYABLE: ₹<span id="summaryTotalCost">0.00</span></h3>
+        </div>
+
+
+        <div class="payment-options step-section">
+            <h2>Payment Method (SBI Yono UPI)</h2>
+            
+            <div class="qr-code-area">
+                <p>Scan this QR Code to Pay **₹<span id="qrCost">0.00</span>**</p>
+                <a id="upiLinkWrapper" href="#" target="_blank">
+                    <img src="/static/sbi_yono_qr.jpg" alt="SBI Yono UPI QR Code" id="upiQRCode"> 
+                </a>
+            </div>
+
+
+            <a id="payNowButton" href="#" class="payment-link-button" style="display: block; margin-top: 20px; padding: 10px; background-color: #1877f2; color: white; text-align: center; text-decoration: none;">Pay Instantly via UPI App</a>
+            
+            <div class="input-group" style="margin-top: 30px;">
+                <p class="status-message" id="paymentStatus">Waiting for payment confirmation...</p>
+            </div>
+            
+            <button type="button" id="confirmPaymentButton" class="payment-button">I Have Paid (Check Status)</button>
+            <button type="button" id="startPrintingButton" class="success-button" style="display: none;">Start Printing</button>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const printData = JSON.parse(localStorage.getItem('printData'));
+            const VPA = "yourvpa@sbi"; // <<<--- এখানে আপনার SBI UPI ID দিন (যেমন: sunmun@sbi)
+
+
+            if (!printData || !printData.totalCost) {
+                alert("Order data missing. Returning to selection.");
+                window.location.href = '/'; 
+                return;
+            }
+
+
+            // UI তে ডেটা সেট করা
+            document.getElementById('summaryFileName').textContent = printData.filename;
+            document.getElementById('summaryPrintType').textContent = (printData.printType === 'bw' ? 'Black & White' : 'Colour');
+            document.getElementById('summaryPageCount').textContent = printData.page_count;
+            document.getElementById('summaryCopies').textContent = printData.copies;
+            const totalCost = printData.totalCost.toFixed(2);
+            document.getElementById('summaryTotalCost').textContent = totalCost;
+            document.getElementById('qrCost').textContent = totalCost;
+            
+            // --- ডাইরেক্ট UPI লিংক তৈরি ---
+            const MerchantName = "PrintShop"; 
+            const upiLink = `upi://pay?pa=${VPA}&pn=${MerchantName}&am=${totalCost}&cu=INR`;
+            
+            // UPI লিংক সেট করা
+            document.getElementById('payNowButton').href = upiLink;
+            document.getElementById('payNowButton').textContent = `Pay ₹${totalCost} Instantly via UPI App`;
+            document.getElementById('upiLinkWrapper').href = upiLink;
+
+
+
+
+            document.getElementById('confirmPaymentButton').addEventListener('click', function() {
+                const statusElement = document.getElementById('paymentStatus');
+                const printButton = document.getElementById('startPrintingButton');
+                
+                // সার্ভারে পেমেন্ট স্ট্যাটাস চেক করার জন্য রিকোয়েস্ট (Simulation)
+                fetch('/check_payment_status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ totalCost: printData.totalCost })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'SUCCESS') {
+                        statusElement.textContent = 'Payment Confirmation SUCCESS! Ready to Print.';
+                        statusElement.style.backgroundColor = '#d4edda'; 
+                        document.getElementById('confirmPaymentButton').style.display = 'none'; 
+                        printButton.style.display = 'block'; 
+                        
+                    } else {
+                        statusElement.textContent = 'Payment Pending/Failed. Please try scanning again.';
+                        statusElement.style.backgroundColor = '#f8d7da'; 
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Server connection error while checking status.');
+                });
+            });
+
+
+            // 'Start Printing' বাটনে ক্লিক করলে কী হবে (প্রিন্টিং ডেটা সার্ভারে পাঠানো)
+            document.getElementById('startPrintingButton').addEventListener('click', function() {
+                // চূড়ান্ত ডেটা সেভ করা (যদি ইউজার copies/type পরিবর্তন করে থাকে)
+                const finalPrintData = JSON.parse(localStorage.getItem('printData'));
+
+
+                // প্রিন্টিং লজিক সার্ভারে POST করা হলো
+                fetch('/start_print', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(finalPrintData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'SUCCESS') {
+                        // সফল হলে স্ট্যাটাস পেজে রিডাইরেক্ট (GET রিকোয়েস্ট)
+                        window.location.href = '/start_print'; 
+                    } else {
+                        alert('Failed to start print job: ' + data.message);
+                        window.location.href = '/start_print'; // এরর স্ট্যাটাস পেজে পাঠানো
+                    }
+                })
+                .catch(error => {
+                    console.error('Error starting print:', error);
+                    alert('Server error during print initiation.');
+                });
+            });
+        });
+    </script>
+</body>
+</html>
+
+

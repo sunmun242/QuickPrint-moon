@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - QuickPrint</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+
+
+    <header class="top-bar">
+        <div class="header-content">
+            <h1 class="logo">Admin Dashboard</h1>
+            <a href="{{ url_for('admin_logout') }}" class="primary-button" style="background-color: #dc3545; padding: 8px 15px;">Logout</a>
+        </div>
+    </header>
+    
+    <div class="container admin-dashboard">
+        <div class="admin-header">
+            <h2 class="step-header" style="border: none;">Welcome, Skymoon!</h2>
+        </div>
+
+
+        <div class="stats-grid">
+            <div class="stat-box">
+                <h4>Total Orders</h4>
+                <p>{{ total_orders }}</p>
+            </div>
+            <div class="stat-box income">
+                <h4>Total Income</h4>
+                <p>{{ total_income }}</p>
+            </div>
+        </div>
+
+
+        <h3>Daily Sales Report (Last 30 Days)</h3>
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Orders</th>
+                    <th>Income</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for report in daily_reports %}
+                <tr>
+                    <td>{{ report.date }}</td>
+                    <td>{{ report.orders }}</td>
+                    <td>{{ report.income }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" style="text-align: center; color: #777;">No sales data available.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+
+    <footer>
+        <div class="footer-content">
+            <p>&copy; 2025 QuickPrint. All rights reserved.</p>
+            <div class="footer-links">
+                <a href="/about">About Us</a>
+                <a href="https://wa.me/917063312134" target="_blank">Contact Us (WhatsApp)</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
+
