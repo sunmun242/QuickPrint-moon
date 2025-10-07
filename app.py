@@ -9,10 +9,9 @@ import threading
 import subprocess
 
 
-# --- VERCEL-এর জন্য ফাইল সিস্টেম কনফিগারেশন ---
-UPLOAD_FOLDER = 'uploads'
-if os.environ.get('VERCEL'):
-    UPLOAD_FOLDER = '/tmp/uploads'
+# --- লোকাল ফাইল সিস্টেম কনফিগারেশন ---
+# 'uploads' ফোল্ডারটি রুট ডিরেক্টরিতে তৈরি হবে
+UPLOAD_FOLDER = 'uploads' 
 
 
 if not os.path.exists(UPLOAD_FOLDER):
@@ -30,9 +29,9 @@ SALES_DATA_FILE = 'sales_data.json'
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 
 
-# --- নিরাপত্তা ও অটো-ডিলিট কনফিগারেশন ---
-MAX_FILE_AGE = 600
-CLEANUP_INTERVAL = 300
+# --- নিরাপত্তা ও অটো-ডিলিট কনফিগারেশন (ফিক্স করা হয়েছে) ---
+MAX_FILE_AGE = 600       # 10 মিনিট = 600 সেকেন্ড
+CLEANUP_INTERVAL = 300   # প্রতি 5 মিনিট পর পর চেক করবে
 
 
 # --- অ্যাডমিন ক্রেডেনশিয়ালস ---
@@ -51,6 +50,7 @@ def load_sales_data():
         with open(SALES_DATA_FILE, 'r') as f:
             return json.load(f)
     except Exception as e:
+        # ফাইলটি প্রথমবার না পেলে বা ত্রুটি হলে ডিকশনারি রিটার্ন করবে
         print(f"Error loading sales data: {e}. Returning empty data.")
         return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}}
 
@@ -58,12 +58,12 @@ def load_sales_data():
 
 
 def save_sales_data(data):
-    """Save sales data (Disabled on Vercel's Read-Only file system)."""
-    if os.environ.get('VERCEL'):
-        print("Warning: Sales data saving skipped on Vercel's read-only file system.")
-        return
-    with open(SALES_DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    """Save sales data to the JSON file (লোকাল সার্ভারে সক্রিয়)."""
+    try:
+        with open(SALES_DATA_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+         print(f"Error saving sales data: {e}.")
 
 
 
@@ -89,7 +89,7 @@ def update_sales_record(cost):
 
 
 
-# --- ফাইল ও ক্লিনআপ ফাংশন ---
+# --- ফাইল ও ক্লিনআপ ফাংশন (১০ মিনিট ডিলিট ফিক্স) ---
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -109,18 +109,39 @@ def count_pages(filepath, extension):
 
 
 def cleanup_uploads():
-    print("Background cleanup thread is disabled on Vercel.")
-    if not os.environ.get('VERCEL'):
-        while True:
-            time.sleep(CLEANUP_INTERVAL)
+    """আপলোড করা ফাইলগুলি নির্দিষ্ট সময় পর ডিলিট করবে।"""
+    while True:
+        try:
+            print("Running background cleanup thread for old files...")
+            
+            # UPLOAD_FOLDER নিশ্চিত করা
+            if not os.path.exists(UPLOAD_FOLDER):
+                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+                
+            for filename in os.listdir(UPLOAD_FOLDER):
+                filepath = os.path.join(UPLOAD_FOLDER, filename)
+                
+                # শুধু ফাইলগুলো চেক করা হচ্ছে
+                if os.path.isfile(filepath):
+                    file_age = time.time() - os.path.getmtime(filepath)
+                    
+                    if file_age > MAX_FILE_AGE:
+                        os.remove(filepath)
+                        print(f"Deleted old file: {filename}")
+        
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            
+        # নির্ধারিত সময় অপেক্ষা করা
+        time.sleep(CLEANUP_INTERVAL)
 
 
 
 
 def start_cleanup_thread():
-    if not os.environ.get('VERCEL'):
-        cleanup_thread = threading.Thread(target=cleanup_uploads, daemon=True)
-        cleanup_thread.start()
+    cleanup_thread = threading.Thread(target=cleanup_uploads, daemon=True)
+    cleanup_thread.start()
+    print("Background cleanup thread started.")
 
 
 
@@ -193,82 +214,82 @@ def payment():
 
 @app.route('/check_payment_status', methods=['POST'])
 def check_payment_status():
+    # এই রুটে আপনার PhonePe পেমেন্ট গেটওয়ে ইন্টিগ্রেশনের লজিক আসবে
     data = request.get_json()
     cost = data.get('totalCost', 0.0)
-    is_paid = random.random() < 0.8
+    
+    # আপাতত ডামি পেমেন্ট স্ট্যাটাস (লোকাল টেস্টিং এর জন্য)
+    is_paid = random.random() < 0.8 
 
 
     if is_paid:
         update_sales_record(cost)
-        return jsonify({'status': 'SUCCESS', 'transaction_id': 'TXN123456', 'printer_id': "Printer 2"})
+        
+        # পেমেন্ট সফল হলে, সঙ্গে সঙ্গে প্রিন্ট কমান্ড ফায়ার হবে
+        # এখানে start_print কে কল করা উচিত, কিন্তু যেহেতু এটি একটি POST রুট, 
+        # আমরা শুধুমাত্র SUCCESS স্ট্যাটাস দেব এবং ফ্রন্টএন্ড থেকে প্রিন্ট রিকোয়েস্ট পাঠাব
+        
+        return jsonify({
+            'status': 'SUCCESS', 
+            'transaction_id': 'TXN123456', 
+            'printer_id': "Printer 2"
+        })
     else:
         return jsonify({'status': 'PENDING', 'error': 'Payment verification failed by Payment Gateway.'})
 
 
 
 
-# --- FIXED PRINT ROUTE ---
+# --- লোকাল পিসি প্রিন্টিং রুট ---
 @app.route('/start_print', methods=['POST', 'GET'])
 def start_print():
-    # --- VERCEL SERVER MODE ---
-    if os.environ.get('VERCEL'):
-        message = "Print job submitted successfully (Simulated). Your printer is not connected on this cloud server."
-        if request.method == 'GET':
-            return render_template('print_status.html', message=message, status="Success")
-        else:
-            return jsonify({
-                'status': 'SUCCESS',
-                'message': "Simulated print command executed successfully."
-            })
-
-
-    # --- LOCAL MODE (REAL PRINTING) ---
-    try:
-        if request.method == 'POST':
-            data = request.get_json(silent=True) or request.form
-
-
-            print_type = data.get('printType', 'color')
-            file_path = data.get('file_path')
-            copies = int(data.get('copies', 1))
-
-
-            if not file_path or not os.path.exists(file_path):
-                return jsonify({
-                    'status': 'FAILED',
-                    'message': 'File path not found or missing.'
-                }), 400
-
-
-            # Printer configuration
-            PRINTER_NAME = "EPSON L3250 Series"
-            SUMATRA_PATH = "C:\\Users\\SUNMUN\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"
-
-
-            command = [
-                SUMATRA_PATH,
-                "-print-to", PRINTER_NAME,
-                file_path,
-                "-silent"
-            ]
-
-
-            subprocess.Popen(command)
-            time.sleep(3)
-
-
-            return jsonify({
-                'status': 'SUCCESS',
-                'message': f"Print command sent successfully to {PRINTER_NAME}.",
-                'file': file_path,
-                'copies': copies,
-                'print_type': print_type
-            })
-
-
+    
+    if request.method == 'GET':
         return render_template('print_status.html',
-                               message="Printing job submitted successfully.",
+                               message="Printing job submitted successfully. Please check the printer.",
                                status="Success")
+
+
+    try:
+        data = request.get_json(silent=True) or request.form
+
+
+        print_type = data.get('printType', 'color')
+        file_path = data.get('file_path')
+        copies = int(data.get('copies', 1))
+
+
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({
+                'status': 'FAILED',
+                'message': 'File path not found or missing.'
+            }), 400
+
+
+        # Printer configuration (আপনার Windows সেটিং অনুযায়ী)
+        PRINTER_NAME = "EPSON L3250 Series"
+        SUMATRA_PATH = "C:\\Users\\SUNMUN\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"
+
+
+        command = [
+            SUMATRA_PATH,
+            "-print-to", PRINTER_NAME,
+            file_path,
+            "-silent"
+        ]
+
+
+        subprocess.Popen(command)
+        time.sleep(3)
+
+
+        return jsonify({
+            'status': 'SUCCESS',
+            'message': f"Print command sent successfully to {PRINTER_NAME}.",
+            'file': file_path,
+            'copies': copies,
+            'print_type': print_type
+        })
 
 
     except Exception as e:
@@ -338,5 +359,7 @@ def admin_logout():
 
 
 if __name__ == '__main__':
-    start_cleanup_thread()
+    # এই কমান্ডটিই স্বয়ংক্রিয় ডিলিট করার কাজটি শুরু করে
+    start_cleanup_thread() 
     app.run(debug=True)
+
