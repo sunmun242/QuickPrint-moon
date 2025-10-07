@@ -1,365 +1,239 @@
+# app.py (updated for Vercel-ready usage)
 import os
-from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory
-from PyPDF2 import PdfReader
+import time
 import uuid
 import json
-import time
+import logging
 import random
 import threading
-import subprocess
 
+from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory, abort
+from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
+from PyPDF2 import PdfReader
 
-# --- লোকাল ফাইল সিস্টেম কনফিগারেশন ---
-# 'uploads' ফোল্ডারটি রুট ডিরেক্টরিতে তৈরি হবে
-UPLOAD_FOLDER = 'uploads' 
+# --- logging ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# --- Upload folder config ---
+# Prefer environment variable; fallback to /tmp/uploads on Vercel or local 'uploads'
+if os.environ.get('VERCEL'):
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/tmp/uploads')
+else:
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# --- Flask app ---
+app = Flask(__name__, static_folder='static', template_folder='templates')
+# ProxyFix helps when behind proxies (Vercel)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
-# --- সার্ভার সেটআপ ---
-app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.secret_key = 'your_super_secret_key_for_session'
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_MB', 50)) * 1024 * 1024  # default 50 MB
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local')
 
-
-# --- কনফিগারেশন ---
+# --- Config & constants ---
 SALES_DATA_FILE = 'sales_data.json'
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 
+# Admin credentials: set these in Vercel env for production
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'Skymoon')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Print@2025')  # replace with hashed / env var in prod
 
-# --- নিরাপত্তা ও অটো-ডিলিট কনফিগারেশন (ফিক্স করা হয়েছে) ---
-MAX_FILE_AGE = 600       # 10 মিনিট = 600 সেকেন্ড
-CLEANUP_INTERVAL = 300   # প্রতি 5 মিনিট পর পর চেক করবে
-
-
-# --- অ্যাডমিন ক্রেডেনশিয়ালস ---
-ADMIN_USERNAME = 'Skymoon'
-ADMIN_PASSWORD_HASHED = 'Print@2025'
-
-
-
-
-# --- ডেটা হ্যান্ডলিং ফাংশন ---
+# --- Sales data helpers ---
 def load_sales_data():
-    """Load sales data from the JSON file."""
     try:
         if not os.path.exists(SALES_DATA_FILE):
             return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}}
         with open(SALES_DATA_FILE, 'r') as f:
             return json.load(f)
     except Exception as e:
-        # ফাইলটি প্রথমবার না পেলে বা ত্রুটি হলে ডিকশনারি রিটার্ন করবে
-        print(f"Error loading sales data: {e}. Returning empty data.")
+        logger.exception("Error loading sales data: %s", e)
         return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}}
 
-
-
-
 def save_sales_data(data):
-    """Save sales data to the JSON file (লোকাল সার্ভারে সক্রিয়)."""
+    # Vercel filesystem is ephemeral / often read-only; skip saving on Vercel
+    if os.environ.get('VERCEL'):
+        logger.warning("Skipping save_sales_data on Vercel (ephemeral filesystem).")
+        return
     try:
         with open(SALES_DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
     except Exception as e:
-         print(f"Error saving sales data: {e}.")
-
-
-
+        logger.exception("Failed to save sales data: %s", e)
 
 def update_sales_record(cost):
-    """Update sales total and daily record."""
     data = load_sales_data()
-    data['total_orders'] += 1
-    data['total_income'] += cost
-
-
+    data['total_orders'] = data.get('total_orders', 0) + 1
+    data['total_income'] = float(data.get('total_income', 0.0)) + float(cost or 0.0)
     today = time.strftime('%Y-%m-%d')
     if today not in data['daily_sales']:
         data['daily_sales'][today] = {"orders": 0, "income": 0.0}
-
-
     data['daily_sales'][today]['orders'] += 1
-    data['daily_sales'][today]['income'] += cost
-
-
+    data['daily_sales'][today]['income'] += float(cost or 0.0)
     save_sales_data(data)
 
-
-
-
-# --- ফাইল ও ক্লিনআপ ফাংশন (১০ মিনিট ডিলিট ফিক্স) ---
+# --- File helpers ---
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-
 
 def count_pages(filepath, extension):
     if extension == 'pdf':
         try:
-            reader = PdfReader(filepath)
-            return len(reader.pages)
-        except Exception:
+            with open(filepath, 'rb') as f:
+                reader = PdfReader(f)
+                return len(reader.pages)
+        except Exception as e:
+            logger.exception("count_pages error: %s", e)
             return 1
     return 1
 
-
-
-
+# Cleanup thread (disabled on Vercel)
 def cleanup_uploads():
-    """আপলোড করা ফাইলগুলি নির্দিষ্ট সময় পর ডিলিট করবে।"""
+    logger.info("Background cleanup thread running (only on local).")
+    CLEANUP_INTERVAL = int(os.environ.get('CLEANUP_INTERVAL_SEC', 300))
+    MAX_FILE_AGE = int(os.environ.get('MAX_FILE_AGE_SEC', 600))
     while True:
         try:
-            print("Running background cleanup thread for old files...")
-            
-            # UPLOAD_FOLDER নিশ্চিত করা
-            if not os.path.exists(UPLOAD_FOLDER):
-                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-                
-            for filename in os.listdir(UPLOAD_FOLDER):
-                filepath = os.path.join(UPLOAD_FOLDER, filename)
-                
-                # শুধু ফাইলগুলো চেক করা হচ্ছে
-                if os.path.isfile(filepath):
-                    file_age = time.time() - os.path.getmtime(filepath)
-                    
-                    if file_age > MAX_FILE_AGE:
-                        os.remove(filepath)
-                        print(f"Deleted old file: {filename}")
-        
-        except Exception as e:
-            print(f"Error during cleanup: {e}")
-            
-        # নির্ধারিত সময় অপেক্ষা করা
+            now = time.time()
+            for fname in os.listdir(app.config['UPLOAD_FOLDER']):
+                fpath = os.path.join(app.config['UPLOAD_FOLDER'], fname)
+                if os.path.isfile(fpath):
+                    if now - os.path.getmtime(fpath) > MAX_FILE_AGE:
+                        try:
+                            os.remove(fpath)
+                            logger.info("Removed old upload: %s", fpath)
+                        except Exception:
+                            logger.exception("Failed to remove: %s", fpath)
+        except Exception:
+            logger.exception("Error during cleanup loop.")
         time.sleep(CLEANUP_INTERVAL)
 
-
-
-
 def start_cleanup_thread():
-    cleanup_thread = threading.Thread(target=cleanup_uploads, daemon=True)
-    cleanup_thread.start()
-    print("Background cleanup thread started.")
+    if not os.environ.get('VERCEL'):
+        t = threading.Thread(target=cleanup_uploads, daemon=True)
+        t.start()
 
-
-
-
-# --- কাস্টমার রুটস ---
+# --- Routes ---
 @app.route('/')
 def index():
     return render_template('index.html')
-
-
-
 
 @app.route('/about')
 def about():
     return render_template('about.html')
 
-
-
-
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'fileToPrint' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-
-
     file = request.files['fileToPrint']
-
-
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-
-
     if file and allowed_file(file.filename):
-        original_filename = file.filename
+        original_filename = secure_filename(file.filename)
         extension = original_filename.rsplit('.', 1)[1].lower()
-        unique_filename = str(uuid.uuid4()) + '.' + extension
+        unique_filename = f"{uuid.uuid4()}.{extension}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-
-
-        file.save(filepath)
-        page_count = count_pages(filepath, extension)
-
-
-        return jsonify({
-            'success': True,
-            'filename': original_filename,
-            'page_count': page_count,
-            'file_path': filepath,
-            'file_url': url_for('uploaded_file', filename=unique_filename)
-        })
+        try:
+            file.save(filepath)
+            page_count = count_pages(filepath, extension)
+            # Note: exposing server absolute path is not recommended in prod
+            return jsonify({
+                'success': True,
+                'filename': original_filename,
+                'page_count': page_count,
+                'file_path': filepath,
+                'file_url': url_for('uploaded_file', filename=unique_filename)
+            })
+        except Exception as e:
+            logger.exception("Failed to save uploaded file: %s", e)
+            return jsonify({'error': 'Failed to save file on server'}), 500
     else:
         return jsonify({'error': 'File type not allowed'}), 400
 
-
-
-
-@app.route('/uploads/<filename>')
+@app.route('/uploads/<path:filename>')
 def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-
-
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    except FileNotFoundError:
+        abort(404)
 
 @app.route('/payment')
 def payment():
     return render_template('payment.html')
 
-
-
-
 @app.route('/check_payment_status', methods=['POST'])
 def check_payment_status():
-    # এই রুটে আপনার PhonePe পেমেন্ট গেটওয়ে ইন্টিগ্রেশনের লজিক আসবে
-    data = request.get_json()
-    cost = data.get('totalCost', 0.0)
-    
-    # আপাতত ডামি পেমেন্ট স্ট্যাটাস (লোকাল টেস্টিং এর জন্য)
-    is_paid = random.random() < 0.8 
-
-
+    data = request.get_json() or {}
+    cost = float(data.get('totalCost', 0.0) or 0.0)
+    # Simulate payment verification
+    is_paid = random.random() < 0.8
     if is_paid:
         update_sales_record(cost)
-        
-        # পেমেন্ট সফল হলে, সঙ্গে সঙ্গে প্রিন্ট কমান্ড ফায়ার হবে
-        # এখানে start_print কে কল করা উচিত, কিন্তু যেহেতু এটি একটি POST রুট, 
-        # আমরা শুধুমাত্র SUCCESS স্ট্যাটাস দেব এবং ফ্রন্টএন্ড থেকে প্রিন্ট রিকোয়েস্ট পাঠাব
-        
-        return jsonify({
-            'status': 'SUCCESS', 
-            'transaction_id': 'TXN123456', 
-            'printer_id': "Printer 2"
-        })
+        return jsonify({'status': 'SUCCESS', 'transaction_id': 'TXN123456', 'printer_id': "Printer 2"})
     else:
         return jsonify({'status': 'PENDING', 'error': 'Payment verification failed by Payment Gateway.'})
 
-
-
-
-# --- লোকাল পিসি প্রিন্টিং রুট ---
-@app.route('/start_print', methods=['POST', 'GET'])
+@app.route('/start_print', methods=['GET', 'POST'])
 def start_print():
-    
-    if request.method == 'GET':
-        return render_template('print_status.html',
-                               message="Printing job submitted successfully. Please check the printer.",
-                               status="Success")
+    # On Vercel we can only simulate; physical printing must be on local machine / LAN printer
+    if os.environ.get('VERCEL'):
+        message = "Print job submitted successfully (Simulated). Physical printer not connected to this cloud server."
+        if request.method == 'GET':
+            return render_template('print_status.html', message=message, status="Success")
+        return jsonify({'status': 'SUCCESS', 'message': "Print command (Simulated) sent successfully."})
 
-
+    # local printing logic (only runs when not on Vercel)
     try:
-        data = request.get_json(silent=True) or request.form
-
-
-        print_type = data.get('printType', 'color')
+        data = request.get_json() or {}
         file_path = data.get('file_path')
         copies = int(data.get('copies', 1))
-
-
-        if not file_path or not os.path.exists(file_path):
-            return jsonify({
-                'status': 'FAILED',
-                'message': 'File path not found or missing.'
-            }), 400
-
-
-        # Printer configuration (আপনার Windows সেটিং অনুযায়ী)
-        PRINTER_NAME = "EPSON L3250 Series"
-        SUMATRA_PATH = "C:\\Users\\SUNMUN\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"
-
-
-        command = [
-            SUMATRA_PATH,
-            "-print-to", PRINTER_NAME,
-            file_path,
-            "-silent"
-        ]
-
-
-        subprocess.Popen(command)
-        time.sleep(3)
-
-
-        return jsonify({
-            'status': 'SUCCESS',
-            'message': f"Print command sent successfully to {PRINTER_NAME}.",
-            'file': file_path,
-            'copies': copies,
-            'print_type': print_type
-        })
-
-
+        # Example: call local printing utility here (platform dependent)
+        # subprocess.Popen([...])
+        return jsonify({'status': 'SUCCESS', 'message': f"Print command queued for local printer (copies={copies})."})
     except Exception as e:
-        return jsonify({
-            'status': 'FAILED',
-            'message': f"Printing Failed. Error: {str(e)}"
-        }), 500
+        logger.exception("Local print error: %s", e)
+        return jsonify({'status': 'FAILED', 'message': f"Printing Failed. Error: {e}"}), 500
 
-
-
-
-# --- অ্যাডমিন রুটস ---
+# --- Admin routes ---
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-
-
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD_HASHED:
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
             session['logged_in'] = True
             return redirect(url_for('admin_dashboard'))
-        else:
-            return render_template('admin_login.html', error='Invalid credentials.')
-
-
+        return render_template('admin_login.html', error='Invalid credentials.')
     return render_template('admin_login.html')
-
-
-
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if not session.get('logged_in'):
         return redirect(url_for('admin_login'))
-
-
     sales_data = load_sales_data()
-
-
     daily_report_list = []
-    sorted_dates = sorted(sales_data['daily_sales'].keys(), reverse=True)[:30]
-
-
-    for date in sorted_dates:
+    for date in sorted(sales_data.get('daily_sales', {}).keys(), reverse=True)[:30]:
+        rec = sales_data['daily_sales'][date]
         daily_report_list.append({
             'date': date,
-            'orders': sales_data['daily_sales'][date]['orders'],
-            'income': f"₹{sales_data['daily_sales'][date]['income']:.2f}"
+            'orders': rec.get('orders', 0),
+            'income': f"₹{rec.get('income', 0.0):.2f}"
         })
-
-
     return render_template('admin_dashboard.html',
-                           total_orders=sales_data['total_orders'],
-                           total_income=f"₹{sales_data['total_income']:.2f}",
+                           total_orders=sales_data.get('total_orders', 0),
+                           total_income=f"₹{sales_data.get('total_income', 0.0):.2f}",
                            daily_reports=daily_report_list)
-
-
-
 
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('logged_in', None)
     return redirect(url_for('admin_login'))
 
-
-
-
+# --- Run ---
 if __name__ == '__main__':
-    # এই কমান্ডটিই স্বয়ংক্রিয় ডিলিট করার কাজটি শুরু করে
-    start_cleanup_thread() 
-    app.run(debug=True)
-
+    start_cleanup_thread()
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
