@@ -1,4 +1,3 @@
-# app.py (updated for Vercel-ready usage)
 import os
 import time
 import uuid
@@ -17,7 +16,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Upload folder config ---
-# Prefer environment variable; fallback to /tmp/uploads on Vercel or local 'uploads'
 if os.environ.get('VERCEL'):
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '/tmp/uploads')
 else:
@@ -27,20 +25,18 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # --- Flask app ---
 app = Flask(__name__, static_folder='static', template_folder='templates')
-# ProxyFix helps when behind proxies (Vercel)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_MB', 50)) * 1024 * 1024  # default 50 MB
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024   # ✅ এখন 100MB পর্যন্ত ফাইল আপলোড করা যাবে
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local')
 
 # --- Config & constants ---
 SALES_DATA_FILE = 'sales_data.json'
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 
-# Admin credentials: set these in Vercel env for production
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'Skymoon')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Print@2025')  # replace with hashed / env var in prod
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Print@2025')
 
 # --- Sales data helpers ---
 def load_sales_data():
@@ -54,7 +50,6 @@ def load_sales_data():
         return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}}
 
 def save_sales_data(data):
-    # Vercel filesystem is ephemeral / often read-only; skip saving on Vercel
     if os.environ.get('VERCEL'):
         logger.warning("Skipping save_sales_data on Vercel (ephemeral filesystem).")
         return
@@ -90,11 +85,11 @@ def count_pages(filepath, extension):
             return 1
     return 1
 
-# Cleanup thread (disabled on Vercel)
+# ✅ Cleanup thread (ফাইল 10 মিনিট পর ডিলিট হবে)
 def cleanup_uploads():
-    logger.info("Background cleanup thread running (only on local).")
-    CLEANUP_INTERVAL = int(os.environ.get('CLEANUP_INTERVAL_SEC', 300))
-    MAX_FILE_AGE = int(os.environ.get('MAX_FILE_AGE_SEC', 600))
+    logger.info("Background cleanup thread running (local only).")
+    CLEANUP_INTERVAL = 120  # প্রতি 2 মিনিটে একবার চেক করবে
+    MAX_FILE_AGE = 600      # 600 সেকেন্ড = 10 মিনিট পর ডিলিট হবে
     while True:
         try:
             now = time.time()
@@ -104,9 +99,9 @@ def cleanup_uploads():
                     if now - os.path.getmtime(fpath) > MAX_FILE_AGE:
                         try:
                             os.remove(fpath)
-                            logger.info("Removed old upload: %s", fpath)
-                        except Exception:
-                            logger.exception("Failed to remove: %s", fpath)
+                            logger.info(f"🗑️ Deleted old file: {fname}")
+                        except Exception as e:
+                            logger.exception(f"Failed to remove {fname}: {e}")
         except Exception:
             logger.exception("Error during cleanup loop.")
         time.sleep(CLEANUP_INTERVAL)
@@ -140,7 +135,6 @@ def upload_file():
         try:
             file.save(filepath)
             page_count = count_pages(filepath, extension)
-            # Note: exposing server absolute path is not recommended in prod
             return jsonify({
                 'success': True,
                 'filename': original_filename,
@@ -169,7 +163,6 @@ def payment():
 def check_payment_status():
     data = request.get_json() or {}
     cost = float(data.get('totalCost', 0.0) or 0.0)
-    # Simulate payment verification
     is_paid = random.random() < 0.8
     if is_paid:
         update_sales_record(cost)
@@ -179,20 +172,16 @@ def check_payment_status():
 
 @app.route('/start_print', methods=['GET', 'POST'])
 def start_print():
-    # On Vercel we can only simulate; physical printing must be on local machine / LAN printer
     if os.environ.get('VERCEL'):
         message = "Print job submitted successfully (Simulated). Physical printer not connected to this cloud server."
         if request.method == 'GET':
             return render_template('print_status.html', message=message, status="Success")
         return jsonify({'status': 'SUCCESS', 'message': "Print command (Simulated) sent successfully."})
 
-    # local printing logic (only runs when not on Vercel)
     try:
         data = request.get_json() or {}
         file_path = data.get('file_path')
         copies = int(data.get('copies', 1))
-        # Example: call local printing utility here (platform dependent)
-        # subprocess.Popen([...])
         return jsonify({'status': 'SUCCESS', 'message': f"Print command queued for local printer (copies={copies})."})
     except Exception as e:
         logger.exception("Local print error: %s", e)
