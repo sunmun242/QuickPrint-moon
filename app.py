@@ -50,9 +50,10 @@ PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID', 'YOUR_CLIENT_ID')
 PHONEPE_CLIENT_SECRET = os.environ.get('PHONEPE_CLIENT_SECRET', 'YOUR_CLIENT_SECRET')
 PHONEPE_CLIENT_VERSION = os.environ.get('PHONEPE_CLIENT_VERSION', '1')  # as provided by PhonePe
 # Use sandbox endpoints for local/testing, production endpoints for live
-PHONEPE_OAUTH_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token"
-PHONEPE_CREATE_PAY_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay"
-PHONEPE_STATUS_URL_TEMPLATE = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/order/{merchantOrderId}/status"
+# ✅ LIVE mode endpoints for production
+PHONEPE_OAUTH_URL = "https://api.phonepe.com/apis/hermes/v1/oauth/token"
+PHONEPE_CREATE_PAY_URL = "https://api.phonepe.com/apis/hermes/checkout/v2/pay"
+PHONEPE_STATUS_URL_TEMPLATE = "https://api.phonepe.com/apis/hermes/checkout/v2/order/{merchantOrderId}/status"
 CALLBACK_URL = "https://quickmoonprint.in/payment_callback" 
 
 # Webhook Basic Auth Credential (your existing)
