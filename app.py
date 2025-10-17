@@ -52,7 +52,7 @@ PHONEPE_SALT_KEY = os.environ.get('PHONEPE_SALT_KEY')
 PHONEPE_SALT_INDEX = os.environ.get('PHONEPE_SALT_INDEX', '1')
 
 # --- PhonePe Endpoints ---
-PHONEPE_CHECKOUT_INIT = "https://api.phonepe.com/apis/hermes/pg/v3/checkout/initiate"
+PHONEPE_CHECKOUT_INIT = "https://api.phonepe.com/apis/hermes/pg/v1/pay"
 PHONEPE_STATUS_URL_TEMPLATE = "https://api.phonepe.com/apis/hermes/pg/v3/status/{merchantId}/{merchantTransactionId}"
 PHONEPE_OAUTH_URL = "https://api.phonepe.com/apis/hermes/v2/oauth/token"
 
@@ -155,7 +155,7 @@ def payment_initiate():
         }
 
         base64_req = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
-        checksum = compute_phonepe_checksum(base64_req, "/pg/v3/checkout/initiate", PHONEPE_SALT_KEY, PHONEPE_SALT_INDEX)
+        checksum = compute_phonepe_checksum(base64_req, "/pg/v1/pay", PHONEPE_SALT_KEY, PHONEPE_SALT_INDEX)
 
         headers = {
             "Content-Type": "application/json",
