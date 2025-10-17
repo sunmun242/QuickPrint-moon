@@ -1,3 +1,4 @@
+# app.py (updated for PhonePe V2 Standard Checkout)
 import os
 import time
 import uuid
@@ -11,30 +12,19 @@ import requests
 import hashlib 
 import base64  
 
-# .env ফাইল লোড করার জন্য
-from dotenv import load_dotenv
+# SSL warning disable করার জন্য (local dev only; production এ verify=True রাখো)
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# .env ফাইল লোড করুন
-load_dotenv() 
-
-
-# SSL warning disable করার জন্য
-import requests.packages.urllib3 
-requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
-
-
-# functools যোগ করা হয়েছে requires_auth ডেকোরেটরের জন্য
 from functools import wraps 
 from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory, abort, Response, make_response
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from PyPDF2 import PdfReader
 
-
 # --- logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 # --- Upload folder config ---
 if os.environ.get('VERCEL'):
@@ -42,38 +32,33 @@ if os.environ.get('VERCEL'):
 else:
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
 
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
 
 # --- Flask app ---
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
-
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local') 
-
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local')
 
 # ----------------------------------------------------------------------
-# 🔑 PHONEPE PAYMENT GATEWAY CONFIG (API Keys) - V2 FIX
+# 🔑 PHONEPE V2 PAYMENT GATEWAY CONFIG (CLIENT CREDENTIALS)
 # ----------------------------------------------------------------------
-# 🚨 .env থেকে মান লোড করা হয়েছে
-PHONEPE_MERCHANT_ID = os.environ.get('CLIENT_ID')
-PHONEPE_SALT_KEY = os.environ.get('CLIENT_SECRET')
-PHONEPE_SALT_INDEX = os.environ.get('CLIENT_VERSION')
-CALLBACK_URL = os.environ.get('CALLBACK_URL')
+# NOTE: Replace these with your real V2 credentials (from PhonePe Business Dashboard)
+PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID', 'YOUR_CLIENT_ID')
+PHONEPE_CLIENT_SECRET = os.environ.get('PHONEPE_CLIENT_SECRET', 'YOUR_CLIENT_SECRET')
+PHONEPE_CLIENT_VERSION = os.environ.get('PHONEPE_CLIENT_VERSION', '1')  # as provided by PhonePe
+# Use sandbox endpoints for local/testing, production endpoints for live
+PHONEPE_OAUTH_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token"
+PHONEPE_CREATE_PAY_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay"
+PHONEPE_STATUS_URL_TEMPLATE = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/order/{merchantOrderId}/status"
+CALLBACK_URL = "https://quickmoonprint.in/payment_callback" 
 
-# 🚨 V2 FIX: Production/Live URL ব্যবহার করা হলো এবং V2 Checkout Path সেট করা হলো
-PHONEPE_BASE_URL = "https://api.phonepe.com/apis/pg/checkout/v2" 
-PHONEPE_PAY_URL = f"{PHONEPE_BASE_URL}/pay"
-
-# 🚨 .env থেকে লোড করা হয়েছে
-WEBHOOK_USER = os.environ.get('WEBHOOK_USER')
-WEBHOOK_PASSWORD = os.environ.get('WEBHOOK_PASSWORD')
+# Webhook Basic Auth Credential (your existing)
+WEBHOOK_USERNAME = os.environ.get('WEBHOOK_USERNAME', 'quickmoonprint')
+WEBHOOK_PASSWORD = os.environ.get('WEBHOOK_PASSWORD', 'Sunmun2005')
 # ----------------------------------------------------------------------
-
 
 # --- Config & constants (Unchanged) ---
 SALES_DATA_FILE = 'sales_data.json'
@@ -81,11 +66,9 @@ ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'Skymoon')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Print@2025')
 PRINTER_NAME = "EPSON L3250 Series"
-# 🚨 পরিবর্তন: Sumatra Path রিয়া দত্তের ল্যাপটপ অনুযায়ী ঠিক করা হয়েছে
-SUMATRA_PATH = r"C:\Users\Riya Dutta\AppData\Local\SumatraPDF\SumatraPDF.exe" 
+SUMATRA_PATH = r"C:\Users\SUNMUN\AppData\Local\SumatraPDF\SumatraPDF.exe" 
 
-
-# --- Sales data helpers (Unchanged) ---
+# --- Sales data helpers (same as before) ---
 def load_sales_data():
     try:
         if not os.path.exists(SALES_DATA_FILE):
@@ -96,7 +79,6 @@ def load_sales_data():
         logger.exception("Error loading sales data: %s", e)
         return {"total_orders": 0, "total_income": 0.0, "daily_sales": {}, "transactions": []}
 
-
 def save_sales_data(data):
     if os.environ.get('VERCEL'):
         logger.warning("Skipping save_sales_data on Vercel (ephemeral filesystem).")
@@ -106,7 +88,6 @@ def save_sales_data(data):
             json.dump(data, f, indent=4)
     except Exception as e:
         logger.exception("Failed to save sales data: %s", e)
-
 
 def update_sales_record(cost, transaction_id): 
     data = load_sales_data()
@@ -128,11 +109,9 @@ def update_sales_record(cost, transaction_id):
     
     save_sales_data(data)
 
-
 # --- File helpers (Unchanged) ---
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
 def count_pages(filepath, extension):
     if extension == 'pdf':
@@ -144,7 +123,6 @@ def count_pages(filepath, extension):
             logger.exception("count_pages error: %s", e)
             return 1
     return 1
-
 
 # --- Cleanup thread (Unchanged) ---
 def cleanup_uploads():
@@ -167,28 +145,22 @@ def cleanup_uploads():
             logger.exception("Error during cleanup loop.")
         time.sleep(CLEANUP_INTERVAL)
 
-
 def start_cleanup_thread():
     if not os.environ.get('VERCEL'):
         t = threading.Thread(target=cleanup_uploads, daemon=True)
         t.start()
 
-
 # ----------------------------------------------------------------------
-# 🔐 Webhook Basic Authentication Logic
+# 🔐 Webhook Basic Authentication Logic (Unchanged)
 # ----------------------------------------------------------------------
 def check_auth(username, password):
-    """PhonePe Webhook-এর Username / password সঠিক কি না, তা পরীক্ষা করে।"""
-    return username == WEBHOOK_USER and password == WEBHOOK_PASSWORD
-
+    return username == WEBHOOK_USERNAME and password == WEBHOOK_PASSWORD
 
 def authenticate():
-    """401 Unauthorised response পাঠায়"""
     return Response(
     'Could not verify your access level for that URL.\n'
     'Authentication required', 401,
     {'WWW-Authenticate': 'Basic realm="Login Required"'})
-
 
 def requires_auth(f):
     @wraps(f)
@@ -201,24 +173,63 @@ def requires_auth(f):
     return decorated
 # ----------------------------------------------------------------------
 
+# ----------------------------------------------------------------------
+# 🔑 PhonePe V2: token handling (client_credentials)
+# ----------------------------------------------------------------------
+_token_cache = {
+    "access_token": None,
+    "expires_at": 0  # epoch seconds
+}
+
+def get_phonepe_token():
+    """
+    Fetches and caches PhonePe V2 OAuth token (client_credentials).
+    """
+    # If token still valid, return it
+    now = int(time.time())
+    if _token_cache.get('access_token') and _token_cache.get('expires_at', 0) - 30 > now:
+        return _token_cache['access_token']
+    
+    payload = {
+        'client_id': PHONEPE_CLIENT_ID,
+        'client_version': PHONEPE_CLIENT_VERSION,
+        'client_secret': PHONEPE_CLIENT_SECRET,
+        'grant_type': 'client_credentials'
+    }
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    try:
+        resp = requests.post(PHONEPE_OAUTH_URL, data=payload, headers=headers, verify=False)
+        resp.raise_for_status()
+        data = resp.json()
+        token = data.get('access_token')
+        expires_at = data.get('expires_at')  # epoch seconds - if provided
+        if token:
+            _token_cache['access_token'] = token
+            _token_cache['expires_at'] = int(expires_at) if expires_at else now + 3000
+            logger.info("Fetched PhonePe token, expires_at=%s", _token_cache['expires_at'])
+            return token
+        else:
+            logger.error("PhonePe token response missing access_token: %s", data)
+            return None
+    except requests.RequestException as e:
+        logger.exception("Failed to fetch PhonePe token: %s", e)
+        return None
+# ----------------------------------------------------------------------
 
 # ----------------------------------------------------------------------
-# 💳 PHONEPE PAYMENT GATEWAY ROUTES 
+# 💳 PHONEPE PAYMENT GATEWAY ROUTES (V2)
 # ----------------------------------------------------------------------
-
 
 @app.route('/payment_initiate', methods=['POST'])
 def payment_initiate():
-    # 🚨 DEBUG PRINT 1: ফ্রন্টএন্ড থেকে আসা ডেটা চেক
     data = request.get_json()
-    logger.info("INCOMING REQUEST DATA: %s", data) 
-    
     if not data or data.get('totalCost', 0) <= 0:
-        logger.error("Error: Invalid or missing data received from frontend.")
         return jsonify({'error': 'Invalid order data or cost'}), 400
     
-    session_id = str(uuid.uuid4())
-    session[session_id] = {
+    # create unique order id for merchant (merchantOrderId)
+    merchant_order_id = str(uuid.uuid4())[:63]  # ensure fits 63 chars limit
+    # store session data keyed by merchant_order_id
+    session[merchant_order_id] = {
         'total_cost': data['totalCost'],
         'filename': data['filename'],
         'file_url': data['file_url'],
@@ -227,205 +238,166 @@ def payment_initiate():
         'page_count': data['page_count']
     }
     
-    # ⚠️ সতর্কতা: টাকা পয়সাতে কনভার্ট করার সময় ফ্লোটিং পয়েন্ট ত্রুটি এড়াতে round করা হয়েছে।
-    amount_paise = int(round(data['totalCost'] * 100)) 
+    amount_paise = int(round(data['totalCost'] * 100))
     
+    # build create payment payload for V2
     payload = {
-        "merchantId": PHONEPE_MERCHANT_ID,
-        "merchantTransactionId": session_id, 
-        "merchantUserId": PHONEPE_MERCHANT_ID,
+        "merchantOrderId": merchant_order_id,
         "amount": amount_paise,
         "redirectUrl": CALLBACK_URL,
-        "redirectMode": "REDIRECT", 
-        "callbackUrl": CALLBACK_URL, 
-        "paymentInstrument": {
-            "type": "PAY_PAGE"
-        }
+        "callbackUrl": CALLBACK_URL,
+        "paymentFlow": {
+            "type": "PG_CHECKOUT"
+        },
+        # optional: metaInfo or expireAfter
+        # "expireAfter": 600,
+        # "metaInfo": {"udf1": "value1"}
     }
-
-
-    # 🚨 DEBUG PRINT 2: PhonePe কে পাঠানোর জন্য চূড়ান্ত Payload চেক
-    logger.info("FINAL PHONEPE PAYLOAD: %s", payload) 
-
-
-    base64_payload = base64.b64encode(json.dumps(payload).encode()).decode()
     
-    # 🚨 V2 FIX: Checksum তৈরির সময় V2 API Path "/pg/v2/pay" ব্যবহার করা হয়েছে
-    checksum_str = base64_payload + "/pg/checkout/v2/pay" + PHONEPE_SALT_KEY 
-    sha256_hash = hashlib.sha256(checksum_str.encode()).hexdigest()
-    x_verify = f"{sha256_hash}###{PHONEPE_SALT_INDEX}"
+    token = get_phonepe_token()
+    if not token:
+        return jsonify({'success': False, 'error': 'Failed to get auth token for Payment Gateway.'}), 500
     
-    logger.info("Checksum String for Pay API: %s", checksum_str)
-
-
     headers = {
         "Content-Type": "application/json",
-        # 🚨 পরিবর্তন: 'accept' header যোগ করা হয়েছে
-        "X-VERIFY": x_verify,
-        "accept": "application/json"
+        "Authorization": f"O-Bearer {token}"
     }
     
     try:
-        # 🚨 V2 FIX: V2 Pay URL এ কল করা হচ্ছে
-        response = requests.post(
-            PHONEPE_PAY_URL, 
-            headers=headers, 
-            json={"request": base64_payload},
-            verify=False 
-        )
-        
-        # 🚨 DEBUG FİX: raise_for_status() এর বদলে সরাসরি response চেক করা হচ্ছে
-        phonepe_response_data = response.json()
-        
-        # 🚨 DEBUG PRINT 3: PhonePe-এর Response টি প্রিন্ট করা হবে
-        logger.info("PhonePe RAW Response: %s", response.text) 
-        
-        if phonepe_response_data.get('success') and phonepe_response_data['code'] == 'PAYMENT_INITIATED':
-            redirect_url = phonepe_response_data['data']['instrumentUrl']
-            return jsonify({'success': True, 'redirectUrl': redirect_url})
+        response = requests.post(PHONEPE_CREATE_PAY_URL, headers=headers, json=payload, verify=False)
+        response.raise_for_status()
+        resp_data = response.json()
+        logger.info("PhonePe Create Payment response: %s", resp_data)
+        # V2 returns redirectUrl at top-level
+        redirect_url = resp_data.get('redirectUrl') or resp_data.get('data', {}).get('redirectUrl')
+        if redirect_url:
+            return jsonify({'success': True, 'redirectUrl': redirect_url, 'merchantOrderId': merchant_order_id})
         else:
-            # এখানে PhonePe এর আসল ত্রুটি কোড এবং বার্তা প্রিন্ট হবে
-            logger.error("PhonePe Initiation Failed (API Response): %s", phonepe_response_data)
-            return jsonify({'success': False, 'error': phonepe_response_data.get('message', 'Payment initiation failed.')}), 500
-
-
-    except requests.exceptions.RequestException as e:
-        logger.exception("Error initiating payment with PhonePe: %s", e)
+            logger.error("Create Payment failed: %s", resp_data)
+            return jsonify({'success': False, 'error': resp_data.get('message', 'Payment initiation failed.')}), 500
+    except requests.RequestException as e:
+        logger.exception("Error initiating payment with PhonePe V2: %s", e)
         return jsonify({'success': False, 'error': 'Server communication error with Payment Gateway.'}), 500
-
 
 @app.route('/payment_callback', methods=['POST'])
 @requires_auth 
 def payment_callback():
+    # PhonePe will call this callback (V2) with order status details.
+    # The exact body may include orderId/merchantOrderId and status info.
     response_data = request.get_json() or {}
-    base64_response = response_data.get('response')
-    x_verify_header = request.headers.get('X-VERIFY')
+    # try to find merchantOrderId in callback
+    merchant_order_id = response_data.get('merchantOrderId') or response_data.get('orderId')
+    # fallback: some implementations send nested structure
+    if not merchant_order_id:
+        # if callback doesn't have merchantOrderId, log and fail gracefully
+        logger.warning("payment_callback missing merchantOrderId: %s", response_data)
+        return jsonify({"message": "Callback received"}), 200
     
-    if not base64_response or not x_verify_header:
-        return redirect(url_for('print_status', status='FAILED', message="Payment callback data missing or invalid format."))
-
-
-    checksum_str = base64_response + PHONEPE_SALT_KEY 
-    sha256_hash = hashlib.sha256(checksum_str.encode()).hexdigest()
-    
-    try:
-        incoming_hash, incoming_index = x_verify_header.split('###')
-    except ValueError:
-        logger.error("PhonePe X-VERIFY header format error.")
-        return redirect(url_for('print_status', status='FAILED', message="Security Check Failed. Invalid header format."))
-
-
-    if incoming_hash != sha256_hash or incoming_index != PHONEPE_SALT_INDEX:
-        logger.error("PhonePe Checksum Mismatch. Possible Tampering.")
-        return redirect(url_for('print_status', status='FAILED', message="Security Check Failed. Please retry payment."))
-
-
-    decoded_payload = json.loads(base64.b64decode(base64_response).decode())
-    
-    transaction_id = decoded_payload.get('merchantTransactionId')
-    payment_status = decoded_payload.get('code') 
-    session_data = session.get(transaction_id)
-    
-    if payment_status == 'PAYMENT_SUCCESS' and session_data:
-        cost = session_data['total_cost']
-        update_sales_record(cost, transaction_id) 
-        
-        print_job_data = {
-            'file_url': session_data['file_url'],
-            'copies': session_data['copies'],
-            'totalCost': cost,
-            'transaction_id': transaction_id
-        }
-        
-        return redirect(url_for('start_print', **print_job_data))
-
-
+    # token validation of callback is already done via BasicAuth (requires_auth)
+    # Check latest state (or parse from callback if present)
+    order_state = response_data.get('state') or response_data.get('status')
+    if not order_state:
+        # if callback doesn't contain explicit state, fall back to fetching via status API
+        try:
+            # call order status API
+            token = get_phonepe_token()
+            if not token:
+                logger.error("No token to validate callback order status")
+                return jsonify({"message": "Token error"}), 500
+            status_url = PHONEPE_STATUS_URL_TEMPLATE.format(merchantOrderId=merchant_order_id)
+            headers = {"Content-Type": "application/json", "Authorization": f"O-Bearer {token}"}
+            resp = requests.get(status_url, headers=headers, verify=False)
+            resp.raise_for_status()
+            status_json = resp.json()
+            order_state = status_json.get('state') or status_json.get('status')
+            callback_decoded = status_json
+        except Exception as e:
+            logger.exception("Failed to fetch order status during callback handling: %s", e)
+            return jsonify({"message": "Status fetch error"}), 500
     else:
-        logger.warning(f"Payment Failed or Pending: {payment_status} for TXN ID: {transaction_id}")
-        return redirect(url_for('print_status', status='FAILED', message=f"Payment {payment_status.lower().replace('_', ' ')}."))
-
+        callback_decoded = response_data
+    
+    session_data = session.get(merchant_order_id)
+    if order_state == 'COMPLETED' or order_state == 'PAYMENT_SUCCESS' or order_state == 'SUCCESS':
+        # update sales record if we have session data
+        if session_data:
+            cost = session_data['total_cost']
+            update_sales_record(cost, merchant_order_id)
+            # trigger print job as before (redirect to start_print)
+            print_job_data = {
+                'file_url': session_data['file_url'],
+                'copies': session_data['copies'],
+                'totalCost': cost,
+                'transaction_id': merchant_order_id
+            }
+            return redirect(url_for('start_print', **print_job_data))
+        else:
+            logger.warning("Order completed but session data not found for %s", merchant_order_id)
+            return jsonify({"message": "Order completed but session data lost"}), 200
+    else:
+        logger.warning("Payment not successful in callback for %s. state=%s", merchant_order_id, order_state)
+        return jsonify({"message": "Payment not successful"}), 200
 
 # ----------------------------------------------------------------------
-# 🔍 PhonePe Status Check রুট 
+# 🔍 PhonePe Status Check রুট (V2)
 # ----------------------------------------------------------------------
 @app.route('/check_payment_status', methods=['POST'])
 def check_payment_status():
     data = request.get_json()
-    transaction_id = data.get('transaction_id')
+    transaction_id = data.get('transaction_id')  # merchantOrderId
 
     if not transaction_id:
         return jsonify({'status': 'FAILED', 'message': 'Transaction ID missing.'}), 400
     
-    # PhonePe স্ট্যাটাস চেক API এর URL তৈরি করা
-    status_url = f"{PHONEPE_BASE_URL}/status/{PHONEPE_MERCHANT_ID}/{transaction_id}"
+    token = get_phonepe_token()
+    if not token:
+        return jsonify({'status': 'FAILED', 'message': 'Auth token error.'}), 500
     
-    # Checksum তৈরি করা
-    checksum_str = f"/pg/v2/status/{PHONEPE_MERCHANT_ID}/{transaction_id}" + PHONEPE_SALT_KEY
-    sha256_hash = hashlib.sha256(checksum_str.encode()).hexdigest()
-    x_verify = f"{sha256_hash}###{PHONEPE_SALT_INDEX}"
-    
-    logger.info("Checksum String for Status API: %s", checksum_str)
-
-
+    status_url = PHONEPE_STATUS_URL_TEMPLATE.format(merchantOrderId=transaction_id)
     headers = {
         "Content-Type": "application/json",
-        "X-VERIFY": x_verify,
-        "X-MERCHANT-ID": PHONEPE_MERCHANT_ID 
+        "Authorization": f"O-Bearer {token}",
+        # X-MERCHANT-ID may be required for partner integrations. Add if needed:
+        # "X-MERCHANT-ID": "<your_merchant_id>"
     }
-    
     try:
         response = requests.get(status_url, headers=headers, verify=False)
-        response.raise_for_status() 
-        
+        response.raise_for_status()
         status_data = response.json()
-        
-        logger.info("PhonePe Response (Status): %s", status_data)
-        
-        if status_data.get('success') and status_data['code'] == 'PAYMENT_SUCCESS':
-            # পেমেন্ট সফল
+        logger.info("PhonePe Status response: %s", status_data)
+        state = status_data.get('state') or status_data.get('status')
+        if state in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS'):
             session_data = session.get(transaction_id)
             if session_data:
-                 print_job_data = {
+                print_job_data = {
                     'file_url': session_data['file_url'],
                     'copies': session_data['copies'],
                     'totalCost': session_data['total_cost'],
                     'transaction_id': transaction_id
-                 }
-                 return jsonify({'status': 'SUCCESS', 'redirectUrl': url_for('start_print', **print_job_data)}), 200
-            
+                }
+                return jsonify({'status': 'SUCCESS', 'redirectUrl': url_for('start_print', **print_job_data)}), 200
             return jsonify({'status': 'FAILED', 'message': 'Payment successful but order data lost. Contact support.'}), 500
-
-
-        elif status_data['code'] == 'PAYMENT_PENDING':
-             return jsonify({'status': 'PENDING', 'message': 'Payment is still processing.'}), 200
-             
+        elif state == 'PENDING':
+            return jsonify({'status': 'PENDING', 'message': 'Payment is still processing.'}), 200
         else:
             return jsonify({'status': 'FAILED', 'message': status_data.get('message', 'Payment failed or declined.')}), 200
-
-
-    except requests.exceptions.RequestException as e:
-        logger.exception("Error checking payment status with PhonePe: %s", e)
+    except requests.RequestException as e:
+        logger.exception("Error checking payment status with PhonePe V2: %s", e)
         return jsonify({'status': 'FAILED', 'message': 'Server communication error with Payment Gateway.'}), 500
 
-
 # ----------------------------------------------------------------------
-# ⚙️ Other Routes 
+# ⚙️ Other Routes (left unchanged)
 # ----------------------------------------------------------------------
-
-
 @app.route('/payment')
 def payment_page():
-    """index.html থেকে আসা রিকোয়েস্ট হ্যান্ডেল করে payment.html টেমপ্লেট লোড করবে।"""
     return render_template('payment.html')
 
-
-# (বাকি সব রুট অপরিবর্তিত)
 @app.route('/')
 def index():
     response = make_response(render_template('index.html'))
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
     return response
-
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -466,7 +438,6 @@ def upload_file():
     else:
         return jsonify({'error': 'File type not allowed'}), 400
 
-
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename):
     try:
@@ -475,7 +446,6 @@ def uploaded_file(filename):
         return response
     except FileNotFoundError:
         abort(404)
-
 
 @app.route('/start_print', methods=['GET'])
 def start_print():
@@ -501,7 +471,6 @@ def start_print():
         temp_file.close()
         temp_filepath = temp_file.name
         
-        # প্রিন্ট সার্ভার ট্রিগার করা হচ্ছে
         command = [
             SUMATRA_PATH,
             "-print-to", PRINTER_NAME,
@@ -520,36 +489,29 @@ def start_print():
         message = f"Printing Failed. Error: {str(e)}"
         return redirect(url_for('print_status', status='FAILED', message=message))
 
-
 @app.route('/print_status')
 def print_status():
     status = request.args.get('status', 'FAILED')
     message = request.args.get('message', 'Printing status is unknown.')
     return render_template('print_status.html', status=status, message=message)
 
-
-# --- Policy routes (Unchanged) ---
 @app.route('/about')
 def about():
     return render_template('about.html')
-
 
 @app.route('/terms_and_conditions')
 def terms():
     return render_template('terms_and_conditions.html')
 
-
 @app.route('/refund_policy')
 def refund():
     return render_template('refund_policy.html')
-
 
 @app.route('/privacy_policy')
 def privacy():
     return render_template('privacy_policy.html')
 
-
 # --- Run ---
 if __name__ == '__main__':
     start_cleanup_thread()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)),debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)

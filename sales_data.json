@@ -1,6 +1,6 @@
 {
-    "total_orders": 8,
-    "total_income": 16.0,
+    "total_orders": 19,
+    "total_income": 48.0,
     "daily_sales": {
         "2025-10-05": {
             "orders": 1,
@@ -13,6 +13,10 @@
         "2025-10-07": {
             "orders": 3,
             "income": 6.0
+        },
+        "2025-10-09": {
+            "orders": 11,
+            "income": 32.0
         }
     }
 }

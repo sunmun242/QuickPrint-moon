@@ -12,6 +12,8 @@ body {
 }
 
 
+
+
 .container {
     max-width: 1100px;
     margin: 30px auto;
@@ -23,6 +25,8 @@ body {
 }
 
 
+
+
 /* --- Header/Top Bar --- */
 .top-bar {
     background-color: #007bff;
@@ -30,6 +34,8 @@ body {
     padding: 15px 0;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
+
+
 
 
 .header-content {
@@ -42,6 +48,8 @@ body {
 }
 
 
+
+
 .logo {
     margin: 0;
     font-size: 1.8em;
@@ -49,7 +57,9 @@ body {
 }
 
 
-/* --- Footer Styles (Professional Look) --- */
+
+
+/* --- Footer Styles --- */
 footer {
     background-color: #343a40; 
     color: #ffffff;
@@ -57,6 +67,8 @@ footer {
     margin-top: 30px;
     width: 100%;
 }
+
+
 
 
 .footer-content {
@@ -70,6 +82,8 @@ footer {
 }
 
 
+
+
 .footer-links a {
     color: #ced4da; 
     text-decoration: none;
@@ -78,65 +92,17 @@ footer {
 }
 
 
+
+
 .footer-links a:hover {
     color: #007bff; 
 }
 
 
-/* --- Step Sections --- */
-.step-section {
-    padding: 20px;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    margin-bottom: 25px;
-    transition: box-shadow 0.3s;
-}
-
-
-.step-section.active {
-    border-left: 5px solid #007bff;
-}
-
-
-.step-header {
-    color: #007bff;
-    border-bottom: 2px solid #f0f0f0;
-    padding-bottom: 10px;
-    margin-top: 0;
-    font-weight: 500;
-}
-
-
-/* --- About Page Specific Styles --- */
-.about-page .about-section {
-    margin-bottom: 25px;
-    padding: 15px;
-    border-left: 4px solid #007bff;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-}
-
-
-.about-page h3 {
-    color: #007bff;
-    margin-top: 0;
-    font-size: 1.2em;
-    font-weight: 600;
-}
-
-
-.about-page ul, .about-page ol {
-    padding-left: 20px;
-}
-
-
-.about-page li {
-    margin-bottom: 8px;
-}
 
 
 /* --- Input & Buttons --- */
-input[type="file"] {
+input[type="file"], select, input[type="number"] {
     display: block;
     padding: 10px;
     border: 1px solid #ccc;
@@ -145,6 +111,21 @@ input[type="file"] {
     width: 100%;
     box-sizing: border-box;
 }
+
+
+input[type="number"] {
+    width: 100px !important; 
+    display: inline-block;
+}
+
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+
 
 
 .primary-button {
@@ -159,9 +140,13 @@ input[type="file"] {
 }
 
 
+
+
 .primary-button:hover:not(:disabled) {
     background-color: #1e7e34;
 }
+
+
 
 
 .primary-button:disabled {
@@ -170,155 +155,164 @@ input[type="file"] {
 }
 
 
-.small-text {
+
+
+.small-info {
     font-size: 0.85em;
     color: #666;
     margin-top: 10px;
 }
 
 
-/* --- Options & Preview Grid (Step 2) --- */
-.options-and-preview-grid {
-    display: grid;
-    grid-template-columns: 1fr 1.5fr; 
-    gap: 30px;
+
+
+/* --- HERO SECTION STYLES (Printer Image Background) --- */
+.hero-section {
+    background-image: url("printer_background.png"); 
+    background-size: cover;
+    background-position: center;
+    min-height: 350px; 
+    padding: 0; 
+    margin-bottom: 30px;
+    position: relative; 
+    display: flex; 
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px; 
+    overflow: hidden;
+}
+
+
+.hero-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.45); 
+    z-index: 1;
+}
+
+
+.hero-content {
+    position: relative;
+    z-index: 2; 
+    text-align: center;
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 30px;
+    color: #ffffff; 
+}
+
+
+.hero-text-box {
+    background-color: rgba(255, 255, 255, 0.95); 
+    padding: 20px 30px;
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    color: #333; 
+    text-align: center;
     margin-top: 20px;
 }
 
 
-/* Box Styling */
-.summary-box, .config-box, .cost-summary-box {
-    padding: 15px;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    margin-bottom: 15px;
-    background-color: #f8f9fa;
-}
-
-
-.cost-summary-box {
-    background-color: #e9f7ef; 
-    border-color: #28a745;
-}
-
-
-#totalCostDisplay {
+.hero-text-box h2 {
+    margin-top: 0;
     font-size: 1.8em;
-    color: #28a745;
+    color: #007bff; 
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+
+.hero-text-box p {
+    margin: 8px 0;
+    font-size: 1.1em;
+    font-weight: 500;
+}
+
+
+.hero-text-box strong {
+    color: #28a745; 
     font-weight: 700;
-    display: block;
-    margin: 10px 0;
 }
 
 
-/* --- Preview Area --- */
-.preview-area {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 400px;
+/* --- STEP FLOW & OPTION STYLES --- */
+.step-container {
+    border: 1px solid #ddd;
+    padding: 30px;
+    border-radius: 10px;
     background-color: #fff;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
-}
-
-
-/* --- ADMIN PANEL STYLES --- */
-
-
-.admin-dashboard {
-    padding: 20px;
-}
-
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
     margin-bottom: 30px;
 }
 
 
-.stat-box {
-    background-color: #e0f7fa; 
-    padding: 20px;
-    border-radius: 8px;
+/* Preview Area Style */
+.preview-area {
+    border: 1px solid #ccc;
+    padding: 10px;
+    margin-top: 15px;
     text-align: center;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    height: 350px;
+    overflow: hidden;
+    background-color: #f7f7f7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+}
+.preview-area canvas, .preview-area img {
+    max-width: 100%;
+    max-height: 100%;
 }
 
 
-.stat-box.income {
-    background-color: #e8f5e9; 
+/* Summary Details */
+.summary-details {
+    margin-top: 20px;
+    border-top: 1px dashed #ddd;
+    padding-top: 15px;
 }
-
-
-.stat-box h4 {
-    margin-top: 0;
-    color: #555;
+.summary-details p {
+    margin: 5px 0;
     font-size: 1.1em;
 }
 
 
-.stat-box p {
-    font-size: 2.2em;
-    font-weight: 700;
-    color: #007bff;
-    margin: 5px 0 0;
-}
-.stat-box.income p {
-    color: #28a745;
-}
-
-
-.report-table {
-    width: 100%;
-    border-collapse: collapse;
+/* Cost Calculation Box */
+.cost-box {
+    background-color: #e6f7ff;
+    border: 1px solid #91d5ff;
+    padding: 15px;
+    border-radius: 5px;
     margin-top: 20px;
+    text-align: center;
+}
+.cost-box h3 {
+    margin: 0;
+    color: #0050b3;
+}
+.cost-box span#totalCostDisplay {
+    font-size: 2em;
+    font-weight: bold;
+    color: #fa541c;
 }
 
 
-.report-table th, .report-table td {
-    padding: 12px 15px;
-    text-align: left;
-    border-bottom: 1px solid #ddd;
-}
-
-
-.report-table th {
-    background-color: #f1f1f1;
-    color: #333;
-    font-weight: 600;
-}
-
-
-.report-table tr:hover {
-    background-color: #f8f8f8;
-}
-
-
-.admin-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    border-bottom: 2px solid #007bff;
-    padding-bottom: 10px;
-}
-
-
-/* --- Responsive Adjustments (Enhanced) --- */
-
-
-/* Tablet & Mobile (Max 900px) */
-@media (max-width: 900px) {
-    .options-and-preview-grid {
-        grid-template-columns: 1fr; 
+/* --- Responsive Adjustments --- */
+@media (max-width: 768px) {
+    .hero-section {
+        min-height: 250px;
     }
-    .preview-area {
-        min-height: 300px; /* মোবাইল স্ক্রিনের জন্য হাইট কমানো হলো */
+    .hero-text-box h2 {
+        font-size: 1.5em;
+    }
+    .hero-text-box p {
+        font-size: 1em;
     }
     .container {
         margin: 15px;
@@ -334,30 +328,8 @@ input[type="file"] {
     .footer-links a {
         margin: 0 10px;
     }
-}
-
-
-/* Small Mobile (Max 500px) */
-@media (max-width: 500px) {
-    .header-content {
-        padding: 0 10px;
-    }
-    .logo {
-        font-size: 1.5em;
-    }
-    .stats-grid {
-        grid-template-columns: 1fr; /* মোবাইল-এ কলামগুলো স্ট্যাক হবে */
-    }
-    .report-table th, .report-table td {
-        font-size: 0.9em;
-        padding: 8px 10px;
+    .preview-area {
+        height: 250px; 
     }
 }
-
-
-
-
-
-
-
 

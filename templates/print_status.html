@@ -3,44 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Print Status</title>
-    <link rel="stylesheet" href="styles.css"> 
+    <title>Print Status | Quick Moon Print</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        .status-box {
+            padding: 30px;
+            text-align: center;
+            border-radius: 8px;
+            margin: 50px auto;
+            max-width: 600px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        .status-success {
+            background-color: #e6ffed;
+            border: 2px solid #28a745;
+            color: #1e7e34;
+        }
+        .status-failed {
+            background-color: #ffeaea;
+            border: 2px solid #dc3545;
+            color: #dc3545;
+        }
+        .status-box h2 {
+            margin-top: 0;
+            font-size: 2em;
+        }
+        .status-box p {
+            font-size: 1.1em;
+        }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1 id="statusHeader">Print Status</h1>
-        
-        <div class="message-box" id="messageBox">
-            <p id="statusMessage">{{ message }}</p>
+    <header class="top-bar">
+        <div class="header-content">
+            <h1 class="logo">Quick Moon Print</h1>
         </div>
+    </header> 
 
 
-        <div class="final-actions">
-            <p>Thank you for using our Automated Print Shop.</p>
-            <button onclick="window.location.href='/'">Place New Order</button>
+    <div class="container main-steps">
+        {% if status == 'SUCCESS' %}
+        <div class="status-box status-success">
+            <h2>🎉 Transaction Successful & Print Job Started!</h2>
+            <p>{{ message }}</p>
+            <p>আপনার প্রিন্টিং কাজটি সফলভাবে শুরু করা হয়েছে। কিছুক্ষণের মধ্যেই আপনি প্রিন্ট পাবেন।</p>
+            <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Place New Order</a>
         </div>
+        {% else %}
+        <div class="status-box status-failed">
+            <h2>❌ Transaction Failed or Print Error</h2>
+            <p>{{ message }}</p>
+            <p>আপনার পেমেন্ট সফল হয়নি অথবা প্রিন্টিং-এ সমস্যা হয়েছে। যদি টাকা কেটে নেওয়া হয়ে থাকে, অনুগ্রহ করে WhatsApp Support-এ যোগাযোগ করুন।</p>
+            <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #6c757d; margin-top: 20px;">Try Again</a>
+            <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px;">WhatsApp Support</a>
+        </div>
+        {% endif %}
     </div>
 
 
-    <script>
-        const status = "{{ status }}"; 
-        const statusHeader = document.getElementById('statusHeader');
-        const messageBox = document.getElementById('messageBox');
-
-
-        if (status === 'Success') {
-            statusHeader.textContent = "Print Job Completed!";
-            messageBox.style.backgroundColor = '#d4edda'; 
-            messageBox.style.color = '#155724';
-        } else if (status === 'Failed') {
-            statusHeader.textContent = "Print Job Failed!";
-            messageBox.style.backgroundColor = '#f8d7da'; 
-            messageBox.style.color = '#721c24';
-        }
-        
-        localStorage.removeItem('printData');
-    </script>
+    <footer>
+        <div class="footer-content">
+            <p>&copy; 2025 Quick Moon Print. All rights reserved. | Contact: 7063312134</p>
+            <div class="footer-links">
+                <a href="{{ url_for('about') }}">About Us</a> |
+                <a href="https://wa.me/917063312134" target="_blank">WhatsApp Support</a> |
+                <a href="{{ url_for('terms') }}" target="_blank">Terms and Conditions</a> |
+                <a href="{{ url_for('refund') }}" target="_blank">Refund Policy</a> |
+                <a href="{{ url_for('privacy') }}" target="_blank">Privacy Policy</a>
+            </div>
+        </div>
+    </footer>
 </body>
 </html>
+
+
 
 

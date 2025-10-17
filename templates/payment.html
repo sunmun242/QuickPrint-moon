@@ -4,7 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Automated Print Shop - Payment</title>
-    <link rel="stylesheet" href="styles.css"> 
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}"> 
+    <style>
+        .payment-app-button {
+            background-color: #f7f7f7;
+            color: #333;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        .payment-app-button:hover {
+            background-color: #eee;
+        }
+        .app-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 10px;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .app-section {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px dashed #ddd;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -21,36 +54,134 @@
         </div>
 
 
+
+
         <div class="payment-options step-section">
-            <h2>Payment Method (SBI Yono UPI)</h2>
+            <h2>Payment Method Options</h2>
             
             <div class="qr-code-area">
-                <p>Scan this QR Code to Pay **₹<span id="qrCost">0.00</span>**</p>
-                <a id="upiLinkWrapper" href="#" target="_blank">
-                    <img src="/static/sbi_yono_qr.jpg" alt="SBI Yono UPI QR Code" id="upiQRCode"> 
-                </a>
+                <p class="status-message" id="paymentStatus" style="text-align: center;">Ready to initiate payment...</p>
+            </div>
+            
+            <!-- 🚨 পরিবর্তন: এটিই আপনার মূল বাটন, যা সমস্ত UPI অপশন দেখানোর জন্য PhonePe-কে কল করবে -->
+            <button type="button" id="payNowButton" class="primary-button" style="background-color: #6739B7; color: white; width: 100%; margin-top: 20px;">
+                Pay Now (All UPI, Cards & Netbanking)
+            </button>
+            
+            <p style="margin-top: 20px; font-style: italic; display: none;" id="waitingMessage">Please complete payment on the PhonePe page. We will automatically check your status upon return.</p>
+
+
+            
+            <!-- 🚨 নতুন সেকশন: UI কে আরও পরিষ্কার করার জন্য UPI অপশনগুলি দেখানো -->
+            <div class="app-section">
+                <h3>Pay Directly via App (PhonePe Gateway)</h3>
+                
+                <!-- এই বাটনগুলো শুধুমাত্র ইউজারকে উৎসাহিত করবে, কিন্তু পেছনে একই API কল করবে -->
+                <button type="button" id="gpayButton" class="payment-app-button" onclick="initiatePayment()">
+                    <img class="app-icon" src="https://placehold.co/24x24/4285F4/ffffff?text=G" alt="Google Pay Icon"> 
+                    Google Pay
+                </button>
+                
+                <button type="button" id="paytmButton" class="payment-app-button" onclick="initiatePayment()">
+                    <img class="app-icon" src="https://placehold.co/24x24/00B9F1/ffffff?text=P" alt="Paytm Icon"> 
+                    Paytm
+                </button>
+                
+                <button type="button" id="amazonButton" class="payment-app-button" onclick="initiatePayment()">
+                    <img class="app-icon" src="https://placehold.co/24x24/FF9900/000000?text=A" alt="Amazon Pay Icon"> 
+                    Amazon Pay
+                </button>
+                
+                <p class="small-text" style="text-align: center; margin-top: 15px;">*Choosing any option redirects you to the secure PhonePe Payment Page.</p>
             </div>
 
 
-            <a id="payNowButton" href="#" class="payment-link-button" style="display: block; margin-top: 20px; padding: 10px; background-color: #1877f2; color: white; text-align: center; text-decoration: none;">Pay Instantly via UPI App</a>
-            
-            <div class="input-group" style="margin-top: 30px;">
-                <p class="status-message" id="paymentStatus">Waiting for payment confirmation...</p>
-            </div>
-            
-            <button type="button" id="confirmPaymentButton" class="payment-button">I Have Paid (Check Status)</button>
-            <button type="button" id="startPrintingButton" class="success-button" style="display: none;">Start Printing</button>
+
+
         </div>
     </div>
 
 
+
+
+    <footer>
+        <div class="footer-content">
+            <p>&copy; 2025 Quick Moon Print. All rights reserved. | Contact: 7063312134</p>
+            <div class="footer-links">
+                <a href="{{ url_for('about') }}">About Us</a> |
+                <a href="https://wa.me/917063312134" target="_blank">WhatsApp Support</a> |
+                <a href="{{ url_for('terms') }}" target="_blank">Terms and Conditions</a> |
+                <a href="{{ url_for('refund') }}" target="_blank">Refund Policy</a> |
+                <a href="{{ url_for('privacy') }}" target="_blank">Privacy Policy</a>
+            </div>
+        </div>
+    </footer>
+
+
+
+
     <script>
+        function initiatePayment() {
+            const printData = JSON.parse(localStorage.getItem('printData'));
+            const payNowButton = document.getElementById('payNowButton');
+            const statusElement = document.getElementById('paymentStatus');
+
+
+            // সব বাটন disabled করা
+            payNowButton.disabled = true;
+            document.getElementById('gpayButton').disabled = true;
+            document.getElementById('paytmButton').disabled = true;
+            document.getElementById('amazonButton').disabled = true;
+
+
+            statusElement.textContent = 'Contacting Payment Gateway...';
+
+
+            // '/payment_initiate' রুটে কল করা হচ্ছে
+            fetch('/payment_initiate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(printData) 
+            })
+            .then(response => response.json())
+            .then(data => {
+                // সব বাটন আবার enabled করা
+                payNowButton.disabled = false;
+                document.getElementById('gpayButton').disabled = false;
+                document.getElementById('paytmButton').disabled = false;
+                document.getElementById('amazonButton').disabled = false;
+                
+                if (data.success && data.redirectUrl) {
+                    // PhonePe এর পেমেন্ট পেজে রিডাইরেক্ট
+                    statusElement.textContent = 'Redirecting to PhonePe...';
+                    window.location.href = data.redirectUrl;
+                } else {
+                    statusElement.textContent = 'Payment initiation failed. ' + data.error;
+                    statusElement.style.backgroundColor = '#f8d7da';
+                    alert('Something went wrong. Please check console for details.');
+                }
+            })
+            .catch(error => {
+                payNowButton.disabled = false;
+                document.getElementById('gpayButton').disabled = false;
+                document.getElementById('paytmButton').disabled = false;
+                document.getElementById('amazonButton').disabled = false;
+                
+                console.error('Error initiating payment:', error);
+                statusElement.textContent = 'Server connection error. Please try again.';
+                statusElement.style.backgroundColor = '#f8d7da';
+            });
+        }
+
+
+
+
         document.addEventListener('DOMContentLoaded', function() {
             const printData = JSON.parse(localStorage.getItem('printData'));
-            const VPA = "yourvpa@sbi"; // <<<--- এখানে আপনার SBI UPI ID দিন (যেমন: sunmun@sbi)
-
-
-            if (!printData || !printData.totalCost) {
+            const totalCost = printData ? printData.totalCost : 0;
+            const payNowButton = document.getElementById('payNowButton');
+            
+            if (!printData || totalCost <= 0) {
                 alert("Order data missing. Returning to selection.");
                 window.location.href = '/'; 
                 return;
@@ -62,82 +193,16 @@
             document.getElementById('summaryPrintType').textContent = (printData.printType === 'bw' ? 'Black & White' : 'Colour');
             document.getElementById('summaryPageCount').textContent = printData.page_count;
             document.getElementById('summaryCopies').textContent = printData.copies;
-            const totalCost = printData.totalCost.toFixed(2);
-            document.getElementById('summaryTotalCost').textContent = totalCost;
-            document.getElementById('qrCost').textContent = totalCost;
+            document.getElementById('summaryTotalCost').textContent = totalCost.toFixed(2);
             
-            // --- ডাইরেক্ট UPI লিংক তৈরি ---
-            const MerchantName = "PrintShop"; 
-            const upiLink = `upi://pay?pa=${VPA}&pn=${MerchantName}&am=${totalCost}&cu=INR`;
+            // মূল বাটন এবং অন্যান্য বাটনগুলিতে একই ফাংশন সেট করা
+            payNowButton.addEventListener('click', initiatePayment);
             
-            // UPI লিংক সেট করা
-            document.getElementById('payNowButton').href = upiLink;
-            document.getElementById('payNowButton').textContent = `Pay ₹${totalCost} Instantly via UPI App`;
-            document.getElementById('upiLinkWrapper').href = upiLink;
-
-
-
-
-            document.getElementById('confirmPaymentButton').addEventListener('click', function() {
-                const statusElement = document.getElementById('paymentStatus');
-                const printButton = document.getElementById('startPrintingButton');
-                
-                // সার্ভারে পেমেন্ট স্ট্যাটাস চেক করার জন্য রিকোয়েস্ট (Simulation)
-                fetch('/check_payment_status', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ totalCost: printData.totalCost })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'SUCCESS') {
-                        statusElement.textContent = 'Payment Confirmation SUCCESS! Ready to Print.';
-                        statusElement.style.backgroundColor = '#d4edda'; 
-                        document.getElementById('confirmPaymentButton').style.display = 'none'; 
-                        printButton.style.display = 'block'; 
-                        
-                    } else {
-                        statusElement.textContent = 'Payment Pending/Failed. Please try scanning again.';
-                        statusElement.style.backgroundColor = '#f8d7da'; 
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('Server connection error while checking status.');
-                });
-            });
-
-
-            // 'Start Printing' বাটনে ক্লিক করলে কী হবে (প্রিন্টিং ডেটা সার্ভারে পাঠানো)
-            document.getElementById('startPrintingButton').addEventListener('click', function() {
-                // চূড়ান্ত ডেটা সেভ করা (যদি ইউজার copies/type পরিবর্তন করে থাকে)
-                const finalPrintData = JSON.parse(localStorage.getItem('printData'));
-
-
-                // প্রিন্টিং লজিক সার্ভারে POST করা হলো
-                fetch('/start_print', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(finalPrintData)
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'SUCCESS') {
-                        // সফল হলে স্ট্যাটাস পেজে রিডাইরেক্ট (GET রিকোয়েস্ট)
-                        window.location.href = '/start_print'; 
-                    } else {
-                        alert('Failed to start print job: ' + data.message);
-                        window.location.href = '/start_print'; // এরর স্ট্যাটাস পেজে পাঠানো
-                    }
-                })
-                .catch(error => {
-                    console.error('Error starting print:', error);
-                    alert('Server error during print initiation.');
-                });
-            });
+            // অন্যান্য বাটনগুলির onclick attribute যেহেতু initiatePayment সেট করা আছে, এখানে আলাদা করে যোগ করার দরকার নেই।
         });
     </script>
 </body>
 </html>
+
 
 

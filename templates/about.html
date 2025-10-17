@@ -3,29 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>About QuickPrint</title>
+    <title>About Quick Moon Print</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
     <header class="top-bar">
         <div class="header-content">
-            <h1 class="logo">QuickPrint</h1>
+            <h1 class="logo">Quick Moon Print</h1>
         </div>
     </header>
 
 
+
+
     <div class="container about-page">
-        <h2 class="step-header">About QuickPrint</h2>
+        <h2 class="step-header">About Quick Moon Print</h2>
+
+
 
 
         <div class="about-section">
             <h3>🌐 Our Purpose: Print, Simplified</h3>
-            <p>QuickPrint is designed to make printing effortless and accessible. Our mission is to provide the fastest, most reliable way to get your digital documents (PDFs, images) physically printed without the hassle of drivers, cables, or manual setups. We aim to connect users to nearby printers instantly.</p>
+            <p>Quick Moon Print is designed to make printing effortless and accessible. Our mission is to provide the fastest, most reliable way to get your digital documents (PDFs, images) physically printed without the hassle of drivers, cables, or manual setups. We aim to connect users to nearby printers instantly.</p>
         </div>
 
 
+
+
         <div class="about-section">
-            <h3>💡 Why Use QuickPrint?</h3>
+            <h3>💡 Why Use Quick Moon Print?</h3>
             <ul>
                 <li><strong>24/7 Accessibility:</strong> Print documents anytime, anywhere, at any connected kiosk.</li>
                 <li><strong>Security Guaranteed:</strong> Your files are securely transmitted for printing and are **automatically deleted** from our servers immediately after the print job is completed.</li>
@@ -33,6 +39,8 @@
                 <li><strong>Wide Format Support:</strong> Easily handle standard PDF, JPG, and PNG files.</li>
             </ul>
         </div>
+
+
 
 
         <div class="about-section">
@@ -48,12 +56,17 @@
     </div>
 
 
+
+
     <footer>
         <div class="footer-content">
-            <p>&copy; 2025 QuickPrint. All rights reserved.</p>
+            <p>&copy; 2025 Quick Moon Print. All rights reserved. | Contact: 7063312134</p>
             <div class="footer-links">
-                <a href="/about">About Us</a>
-                <a href="https://wa.me/917063312134" target="_blank">Contact Us (WhatsApp)</a>
+                <a href="{{ url_for('about') }}">About Us</a> |
+                <a href="https://wa.me/917063312134" target="_blank">WhatsApp Support</a> |
+                <a href="{{ url_for('terms') }}" target="_blank">Terms and Conditions</a> |
+                <a href="{{ url_for('refund') }}" target="_blank">Refund Policy</a> |
+                <a href="{{ url_for('privacy') }}" target="_blank">Privacy Policy</a>
             </div>
         </div>
     </footer>
