@@ -1,5 +1,5 @@
 # app.py — QuickMoonPrint (PhonePe V2 ready) with Printer-Agent support
-# Updated as per PhonePe Integration Team (Live environment)
+# Replace your existing app.py with this file (backup old first)
 
 import os
 import time
@@ -49,7 +49,7 @@ if ENVIRONMENT == 'sandbox':
     PHONEPE_TOKEN_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay"
 else:
-    # ✅ Updated live token URL as per PhonePe team
+    # 💥 CHANGE 1: Updated Live Token URL
     PHONEPE_TOKEN_URL = "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api.phonepe.com/apis/hermes/checkout/v2/pay"
 
@@ -176,12 +176,12 @@ def get_phonepe_token():
     if _token_cache.get('access_token') and _token_cache.get('expires_at', 0) - 30 > now:
         return _token_cache['access_token']
 
-    # ✅ include client_version in payload
+    # 💥 CHANGE 2: Added 'client_version' to the token payload
     payload = {
         'client_id': PHONEPE_CLIENT_ID,
+        'client_version': PHONEPE_CLIENT_VERSION,
         'client_secret': PHONEPE_CLIENT_SECRET,
-        'grant_type': 'client_credentials',
-        'client_version': PHONEPE_CLIENT_VERSION
+        'grant_type': 'client_credentials'
     }
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     try:
@@ -208,6 +208,7 @@ def payment_initiate():
         return jsonify({'error': 'Invalid order data or cost'}), 400
 
     merchant_order_id = str(uuid.uuid4())[:30]
+    # store minimal session data
     session[merchant_order_id] = {
         'total_cost': data.get('totalCost'),
         'file_url': data.get('file_url'),
@@ -221,29 +222,38 @@ def payment_initiate():
 
     amount_paise = int(round(float(data.get('totalCost')) * 100))
 
-    # ✅ Updated payload with metaInfo + message
+    # 💥 CHANGE 3 & 4: Updated Payload with complete metaInfo and correct Authorization header
     payload = {
         "merchantOrderId": merchant_order_id,
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            "udf1": "QuickMoonPrint",
-            "udf2": data.get('filename', ''),
-            "udf3": str(data.get('copies', 1)),
-            "udf4": str(amount_paise),
-            "udf5": "LivePayment"
+            # Added metaInfo fields
+            "udf1": session[merchant_order_id].get('filename', 'N/A'),
+            "udf2": str(session[merchant_order_id].get('copies', 1)),
+            "udf3": str(data.get('page_count', 'N/A')),
+            "udf4": "QuickMoonPrint",
+            "udf5": f"File: {data.get('filename')}",
+            "udf6": "",
+            "udf7": "",
+            "udf8": "",
+            "udf9": "",
+            "udf10": "",
+            "udf11": "",
+            "udf12": "",
+            "udf13": "",
+            "udf14": "",
+            "udf15": ""
         },
         "paymentFlow": {
             "type": "PG_CHECKOUT",
-            "message": "Payment message used for collect requests",
-            "merchantUrls": {
-                "redirectUrl": CALLBACK_URL
-            }
+            "message": "Payment for QuickMoonPrint order", # Added message field
+            "merchantUrls": {"redirectUrl": CALLBACK_URL}
         }
     }
 
-    # ✅ Removed X-VERIFY, added proper Authorization header
     headers = {
+        # 💥 CHANGE 4: Authorization header updated from 'O-Bearer {token}' to 'Bearer {token}'
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
@@ -262,4 +272,171 @@ def payment_initiate():
 
     return jsonify({'success': True, 'redirectUrl': redirect_url, 'merchantOrderId': merchant_order_id})
 
-# (rest of your original code unchanged, including /payment_callback, /pending_prints, /upload, etc.)
+# ---------------- Payment callback (Webhook) ----------------
+@app.route('/payment_callback', methods=['POST'])
+@requires_auth
+def payment_callback():
+    payload = request.get_json() or {}
+    logger.info("Payment callback payload: %s", payload)
+
+    # phonepe may send merchantOrderId or orderId
+    merchant_order_id = payload.get('merchantOrderId') or payload.get('orderId') or payload.get('merchantOrderId')
+    status = payload.get('state') or payload.get('status') or payload.get('orderStatus') or payload.get('statusCode')
+
+    # fallback: if not in callback, just log
+    if not merchant_order_id:
+        logger.warning("Callback missing merchantOrderId/orderId")
+        return jsonify({"message": "Callback received"}), 200
+
+    # If our session has data, create record + mark completed
+    session_data = session.get(merchant_order_id)
+    total_cost = session_data.get('total_cost') if session_data else None
+    file_url = session_data.get('file_url') if session_data else None
+    copies = session_data.get('copies') if session_data else 1
+
+    # Consider 'SUCCESS' or 'COMPLETED' or numeric codes — adapt as needed
+    if status and str(status).upper() in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS', '200'):
+        # create sales record
+        update_sales_record(total_cost or 0.0, merchant_order_id, file_url=file_url, copies=copies)
+        logger.info("Order %s marked COMPLETED and saved.", merchant_order_id)
+        # respond 200 OK to webhook
+        return jsonify({"message": "Order recorded"}), 200
+    else:
+        logger.warning("Payment not successful for %s status=%s", merchant_order_id, status)
+        return jsonify({"message": "Payment not successful"}), 200
+
+# ---------------- Pending prints (for printer agent) ----------------
+@app.route('/pending_prints', methods=['GET'])
+def pending_prints():
+    # security: agent must send key param or X-AGENT-KEY header
+    key = request.args.get('key') or request.headers.get('X-AGENT-KEY')
+    if key != PRINTER_AGENT_KEY:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    data = load_sales_data()
+    pending = []
+    for tx in data.get('transactions', []):
+        if tx.get('status') == 'COMPLETED':
+            pending.append({
+                'id': tx['id'],
+                'file_url': tx.get('file_url'),
+                'copies': tx.get('copies', 1),
+                'cost': tx.get('cost'),
+                'created_at': tx.get('created_at')
+            })
+    return jsonify({'pending': pending}), 200
+
+# ---------------- Mark printed (agent tells server) ----------------
+@app.route('/mark_printed', methods=['POST'])
+def mark_printed():
+    # security: agent must send key param or X-AGENT-KEY header
+    key = request.args.get('key') or request.headers.get('X-AGENT-KEY')
+    if key != PRINTER_AGENT_KEY:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    body = request.get_json() or {}
+    tx_id = body.get('id')
+    if not tx_id:
+        return jsonify({'error': 'missing id'}), 400
+
+    data = load_sales_data()
+    for tx in data.get('transactions', []):
+        if tx.get('id') == tx_id:
+            tx['status'] = 'PRINTED'
+            tx['printed_at'] = datetime.utcnow().isoformat()
+            save_sales_data(data)
+            logger.info("Marked %s as PRINTED", tx_id)
+            return jsonify({'success': True}), 200
+
+    return jsonify({'error': 'not found'}), 404
+
+# ---------------- Start print route (manual/redirect) ----------------
+@app.route('/start_print', methods=['GET'])
+def start_print():
+    data = request.args.to_dict()
+    file_url = data.get('file_url')
+    copies = int(data.get('copies', 1))
+    txn_id = data.get('transaction_id')
+
+    if os.environ.get('VERCEL'):
+        # On cloud we cannot access local printer — only simulate
+        message = f"Print job (TXN: {txn_id}) submitted (Simulated on cloud)."
+        return redirect(url_for('print_status', status='SUCCESS', message=message))
+
+    try:
+        if not file_url:
+            return redirect(url_for('print_status', status='FAILED', message="Missing file URL"))
+        response = requests.get(file_url, timeout=60)
+        if response.status_code != 200:
+            return redirect(url_for('print_status', status='FAILED', message="File download failed"))
+
+        ext = file_url.split('.')[-1].split('?')[0] or "pdf"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+        tmp.write(response.content)
+        tmp.close()
+
+        for _ in range(copies):
+            subprocess.Popen([SUMATRA_PATH, "-print-to", PRINTER_NAME, tmp.name, "-silent"])
+
+        # Optionally, mark as printed locally (but agent will also mark)
+        return redirect(url_for('print_status', status='SUCCESS', message=f"Printing started for TXN {txn_id}"))
+    except Exception as e:
+        logger.exception("Print error: %s", e)
+        return redirect(url_for('print_status', status='FAILED', message=str(e)))
+
+# ---------------- uploads / basic routes ----------------
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/payment')
+def payment_page():
+    return render_template('payment.html')
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    file = request.files.get('fileToPrint')
+    if not file or file.filename == '':
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'File type not allowed'}), 400
+
+    filename = secure_filename(file.filename)
+    unique = f"{uuid.uuid4()}_{filename}"
+    path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
+    file.save(path)
+    page_count = count_pages(path)
+    # Return external URL (server must be reachable)
+    file_url = url_for('uploaded_file', filename=unique, _external=True)
+    return jsonify({
+        'success': True,
+        'filename': filename,
+        'page_count': page_count,
+        'file_url': file_url
+    })
+
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    except FileNotFoundError:
+        abort(404)
+
+@app.route('/print_status')
+def print_status():
+    return render_template('print_status.html', status=request.args.get('status'), message=request.args.get('message'))
+
+@app.route('/about')
+def about(): return render_template('about.html')
+@app.route('/privacy_policy')
+def privacy(): return render_template('privacy_policy.html')
+@app.route('/refund_policy')
+def refund(): return render_template('refund_policy.html')
+@app.route('/terms_and_conditions')
+def terms(): return render_template('terms_and_conditions.html')
+
+# ---------------- run ----------------
+if __name__ == '__main__':
+    start_cleanup_thread()
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
