@@ -40,7 +40,6 @@ PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID')
 PHONEPE_CLIENT_SECRET = os.environ.get('PHONEPE_CLIENT_SECRET')
 PHONEPE_CLIENT_VERSION = os.environ.get('PHONEPE_CLIENT_VERSION', '1')
 MERCHANT_ID = os.environ.get('MERCHANT_ID')
-# ✅ পরিবর্তন: ইউজার রিডাইরেক্টের জন্য নতুন GET রুট সেট করা হলো
 CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://quickmoonprint.in/payment_redirect')
 ENVIRONMENT = os.environ.get('PHONEPE_ENV', 'sandbox').lower()  # 'sandbox' or 'live'
 
@@ -225,7 +224,7 @@ def payment_initiate():
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            # UDF fields are set as simple strings as requested (up to udf5)
+            # ✅ সংশোধন: শুধুমাত্র udf5 পর্যন্ত রাখা হলো
             "udf1": "PrintJob File Info",
             "udf2": "PrintJob Copy Count",
             "udf3": "PrintJob Page Count",
@@ -236,7 +235,7 @@ def payment_initiate():
             "type": "PG_CHECKOUT",
             "message": "Payment for QuickMoonPrint order",
             "merchantUrls": {
-                # ✅ পরিবর্তন: ইউজারকে GET রুটে ফেরত পাঠাতে নতুন URL ব্যবহার
+                # ইউজারকে GET রুটে ফেরত পাঠানো হলো
                 "redirectUrl": "https://quickmoonprint.in/payment_redirect" 
             },
             "paymentModeConfig": {
@@ -278,19 +277,19 @@ def payment_redirect():
     # PhonePe GET query parameters contain the state
     status = request.args.get('state') or 'PROCESSING'
     
+    # ✅ সংশোধন: সমস্ত মেসেজ ইংরেজিতে পরিবর্তন করা হলো
     if status == 'COMPLETED' or status == 'SUCCESS':
-        message = "Payment successful! Your print job is now in the queue."
+        message = "Payment successful! Your print job is now in the queue. Please check back shortly."
     elif status == 'FAILED':
-        message = "Payment failed. Please try again."
+        message = "Transaction Failed or Print Error. Payment was unsuccessful. Please Try Again."
     else:
-        message = "Payment status processing. Please check back shortly."
+        message = "Payment status is currently processing. Please check back shortly."
 
     # ইউজারকে /print_status পেজে পাঠানো হলো
     return redirect(url_for('print_status', status=status, message=message))
 
 
 # ---------------- Payment callback (Webhook) ----------------
-# ✅ এই রুটটি শুধুমাত্র POST মেথড রিসিভ করবে (Webhook)
 @app.route('/payment_callback', methods=['POST']) 
 @requires_auth
 def payment_callback():
@@ -443,6 +442,9 @@ def uploaded_file(filename):
 
 @app.route('/print_status')
 def print_status():
+    # Note: The actual display text on the screen (including the red box) comes from the print_status.html template.
+    # Ensure that the print_status.html template uses the 'status' and 'message' variables correctly,
+    # and that the template itself does not contain the Bengali text.
     return render_template('print_status.html', status=request.args.get('status'), message=request.args.get('message'))
 
 @app.route('/about')
