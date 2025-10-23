@@ -259,7 +259,6 @@ def payment_initiate():
                     {"type": "NET_BANKING"},
                     {"type": "CARD", "cardTypes": ["DEBIT_CARD", "CREDIT_CARD"]}
                 ],
-                "disabledPaymentModes": [] # সব মোড এনাবল রাখতে ফাঁকা রাখা হলো
             }
         }
     }
