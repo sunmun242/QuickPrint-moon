@@ -231,8 +231,6 @@ def payment_initiate():
             "udf3": "PrintJob Page Count",
             "udf4": "QuickMoonPrint",
             "udf5": "Additional Payment Info",
-            "udf6": "", "udf7": "", "udf8": "", "udf9": "", "udf10": "",
-            "udf11": "", "udf12": "", "udf13": "", "udf14": "", "udf15": ""
         },
         "paymentFlow": {
             "type": "PG_CHECKOUT",
