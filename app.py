@@ -1,5 +1,4 @@
 # app.py — QuickMoonPrint (PhonePe V2 ready) with Printer-Agent support
-# Replace your existing app.py with this file (backup old first)
 
 import os
 import time
@@ -49,9 +48,7 @@ if ENVIRONMENT == 'sandbox':
     PHONEPE_TOKEN_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay"
 else:
-    # ✅ Update 1: Live Token URL (যা আগে ঠিক করা হয়েছিল)
     PHONEPE_TOKEN_URL = "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
-    # 💥 Update 2: Live Payment URL (আপনার দেওয়া নতুন তথ্য অনুযায়ী)
     PHONEPE_PAY_URL = "https://api.phonepe.com/apis/pg/checkout/v2/pay"
 
 # webhook basic auth
@@ -177,7 +174,6 @@ def get_phonepe_token():
     if _token_cache.get('access_token') and _token_cache.get('expires_at', 0) - 30 > now:
         return _token_cache['access_token']
 
-    # Added 'client_version' to the token payload (MoM-এর নির্দেশ অনুযায়ী)
     payload = {
         'client_id': PHONEPE_CLIENT_ID,
         'client_version': PHONEPE_CLIENT_VERSION,
@@ -223,53 +219,40 @@ def payment_initiate():
 
     amount_paise = int(round(float(data.get('totalCost')) * 100))
 
-    # 💥 Update 3: Payment Payload Structure (আপনার দেওয়া ডকুমেন্টেশন অনুযায়ী)
     payload = {
         "merchantOrderId": merchant_order_id,
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            # MetaInfo-তে আপনার প্রিন্ট সংক্রান্ত তথ্য
-            "udf1": session[merchant_order_id].get('filename', 'N/A'),
-            "udf2": str(session[merchant_order_id].get('copies', 1)),
-            "udf3": str(data.get('page_count', 'N/A')),
+            # UDF fields are set as simple strings as requested
+            "udf1": "PrintJob File Info",
+            "udf2": "PrintJob Copy Count",
+            "udf3": "PrintJob Page Count",
             "udf4": "QuickMoonPrint",
-            "udf5": f"File: {data.get('filename')}",
-            "udf6": "",
-            "udf7": "",
-            "udf8": "",
-            "udf9": "",
-            "udf10": "",
-            "udf11": "",
-            "udf12": "",
-            "udf13": "",
-            "udf14": "",
-            "udf15": ""
+            "udf5": "Additional Payment Info",
         },
         "paymentFlow": {
             "type": "PG_CHECKOUT",
             "message": "Payment for QuickMoonPrint order",
-            "merchantUrls": {"redirectUrl": CALLBACK_URL},
-            # paymentModeConfig ব্লক যোগ করা হলো
+            "merchantUrls": {"redirectUrl":"https://quickmoonprint.in/payment_callback"},
             "paymentModeConfig": {
+                # Only enabledPaymentModes is included
                 "enabledPaymentModes": [
                     {"type": "UPI_INTENT"},
                     {"type": "UPI_COLLECT"},
                     {"type": "UPI_QR"},
                     {"type": "NET_BANKING"},
                     {"type": "CARD", "cardTypes": ["DEBIT_CARD", "CREDIT_CARD"]}
-                ],
-                "disabledPaymentModes": [] # সব মোড এনাবল রাখতে ফাঁকা রাখা হলো
+                ]
+                # ❌ disabledPaymentModes ব্লকটি বাদ দেওয়া হলো
             }
         }
     }
 
     headers = {
-        # 💥 Update 4: Authorization Header (আপনার দেওয়া ডকুমেন্টেশন অনুযায়ী O-Bearer ব্যবহার করা হলো)
         "Authorization": f"O-Bearer {token}",
         "Content-Type": "application/json"
     }
-
     try:
         resp = requests.post(PHONEPE_PAY_URL, headers=headers, json=payload, timeout=30)
         logger.info("PhonePe pay response status=%s body=%s", resp.status_code, resp.text)
@@ -278,7 +261,6 @@ def payment_initiate():
         logger.exception("PhonePe request failed: %s", e)
         return jsonify({'error': 'Gateway communication error', 'detail': str(e)}), 500
 
-    # Ensure to check the response structure for redirectUrl
     redirect_url = resp_json.get("redirectUrl") or resp_json.get('data', {}).get('redirectUrl')
     if not redirect_url:
         return jsonify({'error': 'No redirect URL in response', 'detail': resp_json}), 400
