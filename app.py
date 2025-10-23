@@ -40,7 +40,8 @@ PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID')
 PHONEPE_CLIENT_SECRET = os.environ.get('PHONEPE_CLIENT_SECRET')
 PHONEPE_CLIENT_VERSION = os.environ.get('PHONEPE_CLIENT_VERSION', '1')
 MERCHANT_ID = os.environ.get('MERCHANT_ID')
-CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://quickmoonprint.in/payment_callback')
+# ✅ পরিবর্তন: ইউজার রিডাইরেক্টের জন্য নতুন GET রুট সেট করা হলো
+CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://quickmoonprint.in/payment_redirect')
 ENVIRONMENT = os.environ.get('PHONEPE_ENV', 'sandbox').lower()  # 'sandbox' or 'live'
 
 # Choose endpoints based on ENVIRONMENT
@@ -224,19 +225,23 @@ def payment_initiate():
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            # UDF fields are set as simple strings as requested
+            # UDF fields are set as simple strings as requested (up to udf5)
             "udf1": "PrintJob File Info",
             "udf2": "PrintJob Copy Count",
             "udf3": "PrintJob Page Count",
             "udf4": "QuickMoonPrint",
             "udf5": "Additional Payment Info",
+            "udf6": "", "udf7": "", "udf8": "", "udf9": "", "udf10": "",
+            "udf11": "", "udf12": "", "udf13": "", "udf14": "", "udf15": ""
         },
         "paymentFlow": {
             "type": "PG_CHECKOUT",
             "message": "Payment for QuickMoonPrint order",
-            "merchantUrls": {"redirectUrl":"https://quickmoonprint.in/payment_callback"},
+            "merchantUrls": {
+                # ✅ পরিবর্তন: ইউজারকে GET রুটে ফেরত পাঠাতে নতুন URL ব্যবহার
+                "redirectUrl": "https://quickmoonprint.in/payment_redirect" 
+            },
             "paymentModeConfig": {
-                # Only enabledPaymentModes is included
                 "enabledPaymentModes": [
                     {"type": "UPI_INTENT"},
                     {"type": "UPI_COLLECT"},
@@ -244,18 +249,18 @@ def payment_initiate():
                     {"type": "NET_BANKING"},
                     {"type": "CARD", "cardTypes": ["DEBIT_CARD", "CREDIT_CARD"]}
                 ]
-                # ❌ disabledPaymentModes ব্লকটি বাদ দেওয়া হলো
             }
         }
     }
 
     headers = {
-        "Authorization": f"O-Bearer {token}",
+        "Authorization": f"O-Bearer {token}", # Confirmed O-Bearer
         "Content-Type": "application/json"
     }
+
     try:
         resp = requests.post(PHONEPE_PAY_URL, headers=headers, json=payload, timeout=30)
-        logger.info("PhonePe pay response status=%s body=%s", resp.status_code, resp.text)
+        logger.info("PhonePe pay request sent. Status: %s. Response Body: %s", resp.status_code, resp.text)
         resp_json = resp.json()
     except Exception as e:
         logger.exception("PhonePe request failed: %s", e)
@@ -267,8 +272,28 @@ def payment_initiate():
 
     return jsonify({'success': True, 'redirectUrl': redirect_url, 'merchantOrderId': merchant_order_id})
 
+# ---------------- Payment redirect (User lands here via GET) ----------------
+@app.route('/payment_redirect', methods=['GET'])
+def payment_redirect():
+    """Handles the final GET redirect from PhonePe after payment."""
+    
+    # PhonePe GET query parameters contain the state
+    status = request.args.get('state') or 'PROCESSING'
+    
+    if status == 'COMPLETED' or status == 'SUCCESS':
+        message = "Payment successful! Your print job is now in the queue."
+    elif status == 'FAILED':
+        message = "Payment failed. Please try again."
+    else:
+        message = "Payment status processing. Please check back shortly."
+
+    # ইউজারকে /print_status পেজে পাঠানো হলো
+    return redirect(url_for('print_status', status=status, message=message))
+
+
 # ---------------- Payment callback (Webhook) ----------------
-@app.route('/payment_callback', methods=['POST'])
+# ✅ এই রুটটি শুধুমাত্র POST মেথড রিসিভ করবে (Webhook)
+@app.route('/payment_callback', methods=['POST']) 
 @requires_auth
 def payment_callback():
     payload = request.get_json() or {}
