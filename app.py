@@ -36,7 +36,6 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local')
 
 # --- PhonePe / env ---
-# Live/Production mode MUST use environment variables for security
 PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID')
 PHONEPE_CLIENT_SECRET = os.environ.get('PHONEPE_CLIENT_SECRET')
 PHONEPE_CLIENT_VERSION = os.environ.get('PHONEPE_CLIENT_VERSION', '1')
@@ -48,13 +47,11 @@ ENVIRONMENT = os.environ.get('PHONEPE_ENV', 'sandbox').lower()  # 'sandbox' or '
 UAT_CLIENT_ID = "TEST-M232UJ245EK43_25101"
 UAT_CLIENT_SECRET = "ZTIzOTRiYjMtNmE5NS00ZjBiLWE3NjQtMTE0MmIyMDFiMzcx"
 UAT_CLIENT_VERSION = "1"
-UAT_MERCHANT_ID = "M232UJ245EK43" # UAT MID is also provided by the team
+UAT_MERCHANT_ID = "M232UJ245EK43" 
 
 # Choose endpoints based on ENVIRONMENT
 if ENVIRONMENT == 'sandbox':
-    # ✅ UAT/SANDBOX environment setup (using provided UAT credentials as primary test method)
-    # This ensures testing is done with the dedicated UAT setup
-    if not PHONEPE_CLIENT_ID: # If Live/Env vars are not set, use UAT hardcoded for sandbox
+    if not PHONEPE_CLIENT_ID: 
         PHONEPE_CLIENT_ID = UAT_CLIENT_ID
         PHONEPE_CLIENT_SECRET = UAT_CLIENT_SECRET
         PHONEPE_CLIENT_VERSION = UAT_CLIENT_VERSION
@@ -63,7 +60,6 @@ if ENVIRONMENT == 'sandbox':
     PHONEPE_TOKEN_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay"
 else:
-    # Production environment setup (MUST rely on os.environ.get() values for security)
     PHONEPE_TOKEN_URL = "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api.phonepe.com/apis/pg/checkout/v2/pay"
 
@@ -125,7 +121,22 @@ def update_sales_record(cost, transaction_id, file_url=None, copies=1):
         'created_at': datetime.utcnow().isoformat(),
         'printed_at': None
     }
-    data.setdefault('transactions', []).append(tx)
+    
+    # 💥 FIX: Search for the existing transaction placeholder to update it
+    # This checks if the transaction was saved in initiate() and updates it
+    found = False
+    for i, existing_tx in enumerate(data.setdefault('transactions', [])):
+        if existing_tx.get('id') == transaction_id and existing_tx.get('status') == 'PENDING':
+            # Update the existing placeholder with final data
+            data['transactions'][i].update(tx)
+            data['transactions'][i]['status'] = 'COMPLETED'
+            found = True
+            break
+            
+    if not found:
+        # If no placeholder was found (old flow/data), append it as completed
+        data['transactions'].append(tx)
+        
     save_sales_data(data)
 
 # ---------------- file helpers ----------------
@@ -231,13 +242,29 @@ def payment_initiate():
         return jsonify({'error': 'Invalid order data or cost'}), 400
 
     merchant_order_id = str(uuid.uuid4())[:30]
-    # store minimal session data
-    session[merchant_order_id] = {
-        'total_cost': data.get('totalCost'),
-        'file_url': data.get('file_url'),
-        'copies': data.get('copies', 1),
-        'filename': data.get('filename')
-    }
+    
+    # 💥 FIX: Store ALL NECESSARY data directly to the database as PENDING transaction
+    # This avoids session loss for file_url and copies
+    try:
+        # Create a PENDING placeholder transaction in the database
+        sales_data = load_sales_data()
+        pending_tx = {
+            'id': merchant_order_id,
+            'date': time.strftime('%Y-%m-%d'),
+            'cost': data.get('totalCost'),
+            'file_url': data.get('file_url'), # Saved directly to DB
+            'copies': data.get('copies', 1), # Saved directly to DB
+            'status': 'PENDING',
+            'created_at': datetime.utcnow().isoformat(),
+            'printed_at': None
+        }
+        sales_data.setdefault('transactions', []).append(pending_tx)
+        save_sales_data(sales_data)
+        logger.info("Created PENDING transaction %s with file URL.", merchant_order_id)
+    except Exception as e:
+        logger.error("Failed to save PENDING transaction: %s", e)
+        return jsonify({'error': 'Internal storage error before payment'}), 500
+
 
     token = get_phonepe_token()
     if not token:
@@ -250,7 +277,6 @@ def payment_initiate():
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            # UDF fields are set as simple strings as requested (up to udf5)
             "udf1": "PrintJob File Info",
             "udf2": "PrintJob Copy Count",
             "udf3": "PrintJob Page Count",
@@ -261,7 +287,6 @@ def payment_initiate():
             "type": "PG_CHECKOUT",
             "message": "Payment for QuickMoonPrint order",
             "merchantUrls": {
-                # ইউজারকে GET রুটে ফেরত পাঠানো হলো
                 "redirectUrl": "https://quickmoonprint.in/payment_redirect" 
             },
             "paymentModeConfig": {
@@ -277,7 +302,7 @@ def payment_initiate():
     }
 
     headers = {
-        "Authorization": f"O-Bearer {token}", # Confirmed O-Bearer
+        "Authorization": f"O-Bearer {token}", 
         "Content-Type": "application/json"
     }
 
@@ -300,10 +325,8 @@ def payment_initiate():
 def payment_redirect():
     """Handles the final GET redirect from PhonePe after payment."""
     
-    # PhonePe GET query parameters contain the state
     status = request.args.get('state') or 'PROCESSING'
     
-    # ✅ সংশোধন: সমস্ত মেসেজ ইংরেজিতে পরিবর্তন করা হলো
     if status == 'COMPLETED' or status == 'SUCCESS':
         message = "Payment successful! Your print job is now in the queue. Please check back shortly."
     elif status == 'FAILED':
@@ -311,12 +334,10 @@ def payment_redirect():
     else:
         message = "Payment status is currently processing. Please check back shortly."
 
-    # ইউজারকে /print_status পেজে পাঠানো হলো
     return redirect(url_for('print_status', status=status, message=message))
 
 
 # ---------------- Payment callback (Webhook) ----------------
-# 🛑 ফিক্স: @requires_auth সরিয়ে দেওয়া হলো যাতে PhonePe সার্ভার 401 ত্রুটি না পায়
 @app.route('/payment_callback', methods=['POST'])
 def payment_callback():
     payload_full = request.get_json() or {}
@@ -331,27 +352,42 @@ def payment_callback():
     # status খোঁজা
     status = data_payload.get('state') or data_payload.get('status') or data_payload.get('orderStatus') or data_payload.get('statusCode')
 
-    # যদি merchantOrderId না পাওয়া যায়, তবে সতর্কতা দেখিয়ে 200 OK পাঠানো হবে
     if not merchant_order_id:
         logger.warning("Callback missing merchantOrderId/orderId in sub-payload.")
-        return jsonify({"message": "Callback received"}), 200 # Webhook must return 200 OK quickly
+        return jsonify({"message": "Callback received"}), 200
 
-    # If our session has data, create record + mark completed
-    session_data = session.get(merchant_order_id) 
-    total_cost = session_data.get('total_cost') if session_data else 0.0
-    file_url = session_data.get('file_url') if session_data else None
-    copies = session_data.get('copies') if session_data else 1
+    # 💥 FIX: Find data from DB PENDING placeholder instead of Session
+    data = load_sales_data()
     
+    # Find the matching PENDING transaction
+    tx_to_update = next((tx for tx in data.get('transactions', []) if tx.get('id') == merchant_order_id), None)
+    
+    if tx_to_update:
+        total_cost = tx_to_update['cost']
+        file_url = tx_to_update['file_url']
+        copies = tx_to_update['copies']
+    else:
+        # If the PENDING transaction was somehow missed or not created (fallback)
+        total_cost = 0.0
+        file_url = None
+        copies = 1
+
+
     # Consider 'SUCCESS' or 'COMPLETED' or numeric codes — adapt as needed
     if status and str(status).upper() in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS', '200'):
-        # create sales record
+        # 💥 FIX: Update the existing PENDING transaction to COMPLETED (includes sales record update)
         update_sales_record(total_cost, merchant_order_id, file_url=file_url, copies=copies)
         logger.info("Order %s marked COMPLETED and saved. Print job should start.", merchant_order_id)
-        # respond 200 OK to webhook
-        # Returning 200 OK immediately as required by PhonePe
         return jsonify({"message": "Order recorded"}), 200 
     else:
+        # Mark as FAILED if payment was rejected
         logger.warning("Payment not successful for %s status=%s", merchant_order_id, status)
+        
+        # If failed, optionally mark the DB transaction as FAILED to remove from queue
+        if tx_to_update:
+             tx_to_update['status'] = 'FAILED'
+             save_sales_data(data)
+             
         return jsonify({"message": "Payment not successful"}), 200
 
 # ---------------- Pending prints (for printer agent) ----------------
@@ -474,9 +510,6 @@ def uploaded_file(filename):
 
 @app.route('/print_status')
 def print_status():
-    # Note: The actual display text on the screen (including the red box) comes from the print_status.html template.
-    # Ensure that the print_status.html template uses the 'status' and 'message' variables correctly,
-    # and that the template itself does not contain the Bengali text.
     return render_template('print_status.html', status=request.args.get('status'), message=request.args.get('message'))
 
 @app.route('/about')
