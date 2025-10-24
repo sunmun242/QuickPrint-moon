@@ -12,9 +12,6 @@
 </head>
 <body>
 
-
-
-
     <header class="top-bar">
         <div class="header-content">
             <h1 class="logo">Quick Moon Print</h1>
@@ -22,11 +19,9 @@
     </header>
     
     <div class="hero-section">
-        <div class="container hero-content">
-            <h2 class="step-header">Your Fastest Digital-to-Print Solution</h2>
-            <div class="info-section">
-                <p>Quick Moon Print Shop: Your fastest and most reliable automated printing solution.</p>
-                <p>Upload your document, select your options, pay securely online, and the **printing job starts automatically** upon successful payment verification. We guarantee security and speed!</p>
+        <div class="hero-content"> <div class="hero-text-overlay"> 
+                <p class="hero-main-text">Quick Moon Print Shop: Your fastest and most reliable automated printing solution.</p>
+                <p class="hero-sub-text">Upload your document, select your options, pay securely online, and the **printing job starts automatically** upon successful payment verification. We guarantee security and speed!</p>
             </div>
         </div>
     </div>
@@ -41,9 +36,6 @@
             <p class="small-text">Your file will be securely uploaded and deleted after printing.</p>
         </div>
 
-
-
-
         <div class="step-section" id="step2" style="display: none;">
             <h2 class="step-header">2. Check Preview & Set Options</h2>
             
@@ -56,9 +48,6 @@
                         <p><strong>Total Pages:</strong> <span id="summaryPageCount"></span></p>
                         <p><strong>Paper Size:</strong> A4 (Default)</p>
                     </div>
-
-
-
 
                     <div class="config-box">
                         <h3>Printing Configuration:</h3>
@@ -75,18 +64,12 @@
                         </div>
                     </div>
 
-
-
-
                     <div class="cost-summary-box">
                         <h3>Estimated Cost:</h3>
                         <p>Total Print Cost: ₹<span id="totalCostDisplay">0.00</span></p>
                         <button type="button" class="primary-button" id="proceedButton">Proceed to Payment</button>
                     </div>
                 </div>
-
-
-
 
                 <div class="preview-column">
                     <h3>Document Preview (Page 1)</h3>
@@ -97,15 +80,9 @@
                     </div>
                 </div>
 
-
-
-
             </div>
         </div>
     </div>
-
-
-
 
     <footer>
         <div class="footer-content">
@@ -120,17 +97,11 @@
         </div>
     </footer>
 
-
-
-
     <script>
-        // জাভাস্ক্রিপ্ট কোড অপরিবর্তিত আছে...
+        // জাভাস্ক্রিপ্ট কোড অপরিবর্তিত আছে... (আগের কোড এখানে রাখুন)
         const PRICE_BW = 2.00; // Fixed price
         const PRICE_COLOR = 4.00; // Fixed price
         let globalPrintData = {}; // To store upload data
-
-
-
 
         // --- Preview Function ---
         function showPdfPreview(fileUrl) {
@@ -138,9 +109,6 @@
             const imageViewer = document.getElementById('imageViewer');
             imageViewer.style.display = 'none';
             canvas.style.display = 'block';
-
-
-
 
             pdfjsLib.getDocument(fileUrl).promise.then(function(pdfDoc) {
                 pdfDoc.getPage(1).then(function(page) {
@@ -161,9 +129,6 @@
             });
         }
 
-
-
-
         function showImagePreview(fileUrl) {
             const canvas = document.getElementById('pdfViewer');
             const imageViewer = document.getElementById('imageViewer');
@@ -173,17 +138,11 @@
             document.getElementById('previewMessage').style.display = 'none';
         }
 
-
-
-
         // --- Cost Calculation Function ---
         function calculateCost() {
             const copies = parseInt(document.getElementById('copies').value) || 1;
             const printType = document.getElementById('printType').value;
             const pageCount = globalPrintData.page_count || 1;
-
-
-
 
             const rate = (printType === 'bw' ? PRICE_BW : PRICE_COLOR);
             const totalCost = rate * pageCount * copies;
@@ -192,12 +151,9 @@
             
             // Save data
             globalPrintData.copies = copies;
-            globalPrintData.printType = printType;
+            globalPrintData.printMode = printType.toUpperCase(); // Save as BW or COLOR
             globalPrintData.totalCost = totalCost;
         }
-
-
-
 
         document.addEventListener('DOMContentLoaded', function() {
             // 1. File Upload Handling
@@ -206,9 +162,6 @@
                 const formData = new FormData(this);
                 document.getElementById('uploadButton').textContent = 'Uploading...';
                 document.getElementById('uploadButton').disabled = true;
-
-
-
 
                 fetch('/upload', {
                     method: 'POST',
@@ -250,27 +203,47 @@
                 });
             });
 
-
-
-
             // 5. Recalculate cost when options change
             document.getElementById('copies').addEventListener('input', calculateCost);
             document.getElementById('printType').addEventListener('change', calculateCost);
 
-
-
-
             // 6. Proceed to Payment step
             document.getElementById('proceedButton').addEventListener('click', function() {
                 if (globalPrintData.totalCost > 0) {
-                    localStorage.setItem('printData', JSON.stringify(globalPrintData));
-                    window.location.href = '/payment';
+                    const payload = {
+                        totalCost: globalPrintData.totalCost,
+                        file_url: globalPrintData.file_url,
+                        copies: globalPrintData.copies,
+                        filename: globalPrintData.filename,
+                        page_count: globalPrintData.page_count,
+                        printMode: globalPrintData.printMode 
+                    };
+                    
+                    // Call the payment initiate API
+                    fetch('/payment_initiate', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.redirectUrl) {
+                            window.location.href = data.redirectUrl;
+                        } else {
+                            alert('Payment initiation failed: ' + (data.error || 'Unknown error'));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Payment Error:', error);
+                        alert('A communication error occurred with the payment gateway.');
+                    });
                 } else {
-                    alert("Please set print options.");
+                    alert("Please set print options and ensure cost is calculated.");
                 }
             });
         });
     </script>
 </body>
 </html>
-
