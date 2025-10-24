@@ -36,6 +36,7 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local')
 
 # --- PhonePe / env ---
+# Live/Production mode MUST use environment variables for security
 PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID')
 PHONEPE_CLIENT_SECRET = os.environ.get('PHONEPE_CLIENT_SECRET')
 PHONEPE_CLIENT_VERSION = os.environ.get('PHONEPE_CLIENT_VERSION', '1')
@@ -43,11 +44,26 @@ MERCHANT_ID = os.environ.get('MERCHANT_ID')
 CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://quickmoonprint.in/payment_redirect')
 ENVIRONMENT = os.environ.get('PHONEPE_ENV', 'sandbox').lower()  # 'sandbox' or 'live'
 
+# UAT/SANDBOX credentials provided by PhonePe team for secure testing (fallback)
+UAT_CLIENT_ID = "TEST-M232UJ245EK43_25101"
+UAT_CLIENT_SECRET = "ZTIzOTRiYjMtNmE5NS00ZjBiLWE3NjQtMTE0MmIyMDFiMzcx"
+UAT_CLIENT_VERSION = "1"
+UAT_MERCHANT_ID = "M232UJ245EK43" # UAT MID is also provided by the team
+
 # Choose endpoints based on ENVIRONMENT
 if ENVIRONMENT == 'sandbox':
+    # ✅ UAT/SANDBOX environment setup (using provided UAT credentials as primary test method)
+    # This ensures testing is done with the dedicated UAT setup
+    if not PHONEPE_CLIENT_ID: # If Live/Env vars are not set, use UAT hardcoded for sandbox
+        PHONEPE_CLIENT_ID = UAT_CLIENT_ID
+        PHONEPE_CLIENT_SECRET = UAT_CLIENT_SECRET
+        PHONEPE_CLIENT_VERSION = UAT_CLIENT_VERSION
+        MERCHANT_ID = UAT_MERCHANT_ID
+
     PHONEPE_TOKEN_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay"
 else:
+    # Production environment setup (MUST rely on os.environ.get() values for security)
     PHONEPE_TOKEN_URL = "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
     PHONEPE_PAY_URL = "https://api.phonepe.com/apis/pg/checkout/v2/pay"
 
@@ -174,10 +190,20 @@ def get_phonepe_token():
     if _token_cache.get('access_token') and _token_cache.get('expires_at', 0) - 30 > now:
         return _token_cache['access_token']
 
+    # Use the appropriate client details based on environment configuration
+    client_id = PHONEPE_CLIENT_ID
+    client_secret = PHONEPE_CLIENT_SECRET
+    client_version = PHONEPE_CLIENT_VERSION
+    
+    # Check if credentials are set (important for Live mode)
+    if not client_id or not client_secret:
+        logger.error(f"PhonePe credentials not set for {ENVIRONMENT} environment.")
+        return None
+
     payload = {
-        'client_id': PHONEPE_CLIENT_ID,
-        'client_version': PHONEPE_CLIENT_VERSION,
-        'client_secret': PHONEPE_CLIENT_SECRET,
+        'client_id': client_id,
+        'client_version': client_version,
+        'client_secret': client_secret,
         'grant_type': 'client_credentials'
     }
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
