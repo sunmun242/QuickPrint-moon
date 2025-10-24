@@ -1,4 +1,4 @@
-# app.py — QuickMoonPrint (PhonePe V2 ready with Dynamic Print Mode)
+# app.py — QuickMoonPrint (PhonePe V2 ready with Dynamic Print Mode and Admin Report)
 
 import os
 import time
@@ -11,7 +11,7 @@ import tempfile
 import requests
 import hashlib
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta # <<< timedelta যোগ করা হলো
 from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory, abort, Response, make_response
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -117,7 +117,7 @@ def update_sales_record(cost, transaction_id, file_url=None, copies=1, print_mod
         'cost': cost,
         'file_url': file_url,
         'copies': copies,
-        'print_mode': print_mode, # <<<< Updated with print_mode
+        'print_mode': print_mode,
         'status': 'COMPLETED',
         'created_at': datetime.utcnow().isoformat(),
         'printed_at': None
@@ -176,24 +176,90 @@ def start_cleanup_thread():
         t = threading.Thread(target=cleanup_uploads, daemon=True)
         t.start()
 
-# ---------------- webhook basic auth decorator ----------------
-def check_auth(username, password):
-    return username == WEBHOOK_USERNAME and password == WEBHOOK_PASSWORD
-
-def authenticate():
-    return Response('Could not verify your access level for that URL.\nAuthentication required', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
-
-def requires_auth(f):
+# ---------------- ADMIN AUTH & ROUTES ----------------
+def requires_admin_auth(f):
+    """Decorator to protect admin routes."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            logger.warning("Webhook Authentication Failed!")
-            return authenticate()
+        if 'admin_logged_in' not in session or not session['admin_logged_in']:
+            return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated
 
-# ---------------- token cache ----------------
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    """Handles admin login."""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session['admin_logged_in'] = True
+            return redirect(url_for('admin_dashboard'))
+        else:
+            # Assumes you have an admin_login.html template
+            return render_template('admin_login.html', error="Invalid credentials") 
+    return render_template('admin_login.html', error=None)
+
+@app.route('/admin/logout')
+def admin_logout():
+    """Handles admin logout."""
+    session.pop('admin_logged_in', None)
+    return redirect(url_for('admin_login'))
+
+@app.route('/admin/dashboard')
+@requires_admin_auth
+def admin_dashboard():
+    """Renders the admin dashboard with sales reports."""
+    data = load_sales_data()
+    transactions = data.get('transactions', [])
+    
+    now = datetime.now()
+    today_str = now.strftime('%Y-%m-%d')
+    current_month_str = now.strftime('%Y-%m')
+    
+    # Calculate Last Month Start Date
+    last_month_start = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
+    last_month_str = last_month_start.strftime('%Y-%m')
+    
+    # Calculate Summary Stats
+    total_income = data.get('total_income', 0.0)
+    
+    # Get today's income
+    today_income = data['daily_sales'].get(today_str, {}).get('income', 0.0)
+    
+    # Calculate current month's income
+    current_month_income = sum(
+        d.get('income', 0.0) for date_str, d in data['daily_sales'].items() 
+        if date_str.startswith(current_month_str)
+    )
+    
+    # Calculate last month's income
+    last_month_income = sum(
+        d.get('income', 0.0) for date_str, d in data['daily_sales'].items() 
+        if date_str.startswith(last_month_str)
+    )
+
+    # Prepare Monthly Breakdown
+    monthly_sales = {}
+    for date_str, d in data['daily_sales'].items():
+        month_year = date_str[:7] # YYYY-MM
+        monthly_sales.setdefault(month_year, {'income': 0.0, 'orders': 0})
+        monthly_sales[month_year]['income'] += d.get('income', 0.0)
+        monthly_sales[month_year]['orders'] += d.get('orders', 0)
+        
+    # Sort months descending (Newest month first)
+    sorted_monthly_sales = dict(sorted(monthly_sales.items(), reverse=True))
+
+    return render_template('admin_dashboard.html', 
+                           total_income=total_income,
+                           today_income=today_income,
+                           current_month_income=current_month_income,
+                           last_month_income=last_month_income,
+                           monthly_sales=sorted_monthly_sales,
+                           transactions=transactions)
+
+
+# ---------------- WEBHOOK AND TOKEN HANDLERS ----------------
 _token_cache = {"access_token": None, "expires_at": 0}
 
 def get_phonepe_token():
@@ -206,7 +272,6 @@ def get_phonepe_token():
     client_secret = PHONEPE_CLIENT_SECRET
     client_version = PHONEPE_CLIENT_VERSION
     
-    # Check if credentials are set (important for Live mode)
     if not client_id or not client_secret:
         logger.error(f"PhonePe credentials not set for {ENVIRONMENT} environment.")
         return None
@@ -255,7 +320,7 @@ def payment_initiate():
             'cost': data.get('totalCost'),
             'file_url': data.get('file_url'), # Saved directly to DB
             'copies': data.get('copies', 1), # Saved directly to DB
-            'print_mode': print_mode,        # <<< New: Saved directly to DB
+            'print_mode': print_mode,        # <<< Saved directly to DB
             'status': 'PENDING',
             'created_at': datetime.utcnow().isoformat(),
             'printed_at': None
@@ -336,7 +401,6 @@ def payment_redirect():
         # Assuming Webhook succeeded and the job is in the queue/printed.
         message = "Payment successful! Your print job is now in the queue." 
 
-    # We use COMPLETED status to trigger the SUCCESS box in the HTML template.
     return redirect(url_for('print_status', status='COMPLETED', message=message))
 
 

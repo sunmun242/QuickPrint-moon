@@ -3,85 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - Quick Moon Print</title>
+    <title>Admin Dashboard | Quick Moon Print</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f7f6; }
+        .dashboard-container { max-width: 1200px; margin: 20px auto; padding: 20px; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); }
+        h1 { border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-bottom: 20px; }
+        .summary-cards { display: flex; justify-content: space-between; margin-bottom: 30px; flex-wrap: wrap; }
+        .card { background-color: #f0f8ff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px; width: 23%; min-width: 200px; margin-bottom: 15px; }
+        .card h3 { margin-top: 0; color: #007bff; font-size: 1.1em; }
+        .card p { font-size: 2em; font-weight: bold; color: #333; margin: 5px 0 0; }
+        .report-section { margin-top: 40px; }
+        .report-section h2 { border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 15px; font-size: 1.5em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .btn-logout { background-color: #dc3545; color: white; padding: 8px 15px; border: none; border-radius: 4px; text-decoration: none; float: right; margin-top: -50px; }
+    </style>
 </head>
 <body>
+    <div class="dashboard-container">
+        <h1>Admin Dashboard - Sales Overview</h1>
+        <a href="{{ url_for('admin_logout') }}" class="btn-logout">Logout</a>
 
-
-
-
-    <header class="top-bar">
-        <div class="header-content">
-            <h1 class="logo">Admin Dashboard - Quick Moon Print</h1>
-            <a href="{{ url_for('admin_logout') }}" class="primary-button" style="background-color: #dc3545; padding: 8px 15px;">Logout</a>
-        </div>
-    </header>
-    
-    <div class="container admin-dashboard">
-        <div class="admin-header">
-            <h2 class="step-header" style="border: none;">Welcome, Skymoon!</h2>
-        </div>
-
-
-
-
-        <div class="stats-grid">
-            <div class="stat-box">
-                <h4>Total Orders</h4>
-                <p>{{ total_orders }}</p>
+        <div class="summary-cards">
+            <div class="card">
+                <h3>💰 Total Lifetime Income</h3>
+                <p>₹ {{ "{:.2f}".format(total_income) }}</p>
             </div>
-            <div class="stat-box income">
-                <h4>Total Income</h4>
-                <p>{{ total_income }}</p>
+            <div class="card">
+                <h3>📅 Today's Income</h3>
+                <p>₹ {{ "{:.2f}".format(today_income) }}</p>
+            </div>
+            <div class="card">
+                <h3>🗓️ Current Month Income</h3>
+                <p>₹ {{ "{:.2f}".format(current_month_income) }}</p>
+            </div>
+            <div class="card">
+                <h3>⏮️ Last Month Income</h3>
+                <p>₹ {{ "{:.2f}".format(last_month_income) }}</p>
             </div>
         </div>
 
+        <div class="report-section">
+            <h2>Monthly Sales Breakdown</h2>
+            {% if monthly_sales %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th>Income (₹)</th>
+                            <th>Total Orders</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for month, data in monthly_sales.items() %}
+                        <tr>
+                            <td>{{ month }}</td>
+                            <td>{{ "{:.2f}".format(data.income) }}</td>
+                            <td>{{ data.orders }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>No monthly sales data available yet.</p>
+            {% endif %}
+        </div>
+        
+        <div class="report-section">
+            <h2>All Transactions (Completed)</h2>
+            {% if transactions %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Order ID</th>
+                            <th>Cost (₹)</th>
+                            <th>Copies</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in transactions | reverse %}
+                        {% if tx.status == 'COMPLETED' or tx.status == 'PRINTED' %}
+                        <tr>
+                            <td>{{ tx.date }}</td>
+                            <td>{{ tx.id[:8] }}...</td>
+                            <td>{{ "{:.2f}".format(tx.cost) }}</td>
+                            <td>{{ tx.copies }}</td>
+                            <td>{{ tx.status }}</td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>No completed transactions available.</p>
+            {% endif %}
+        </div>
 
-
-
-        <h3>Daily Sales Report (Last 30 Days)</h3>
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Orders</th>
-                    <th>Income</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for report in daily_reports %}
-                <tr>
-                    <td>{{ report.date }}</td>
-                    <td>{{ report.orders }}</td>
-                    <td>{{ report.income }}</td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="3" style="text-align: center; color: #777;">No sales data available.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
     </div>
-
-
-
-
-    <footer>
-        <div class="footer-content">
-            <p>&copy; 2025 Quick Moon Print. All rights reserved. | Contact: 7063312134</p>
-            <div class="footer-links">
-                <a href="{{ url_for('about') }}">About Us</a> |
-                <a href="https://wa.me/917063312134" target="_blank">WhatsApp Support</a> |
-                <a href="{{ url_for('terms') }}" target="_blank">Terms and Conditions</a> |
-                <a href="{{ url_for('refund') }}" target="_blank">Refund Policy</a> |
-                <a href="{{ url_for('privacy') }}" target="_blank">Privacy Policy</a>
-            </div>
-        </div>
-    </footer>
 </body>
 </html>
-
-
-
