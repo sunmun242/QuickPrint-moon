@@ -224,7 +224,7 @@ def payment_initiate():
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            # ✅ সংশোধন: শুধুমাত্র udf5 পর্যন্ত রাখা হলো
+            # UDF fields are set as simple strings as requested (up to udf5)
             "udf1": "PrintJob File Info",
             "udf2": "PrintJob Copy Count",
             "udf3": "PrintJob Page Count",
@@ -291,7 +291,7 @@ def payment_redirect():
 
 # ---------------- Payment callback (Webhook) ----------------
 @app.route('/payment_callback', methods=['POST']) 
-@requires_auth
+# 🛑 এই লাইনটি সরাতে হবে (Removing @requires_auth to fix 401 UNAUTHORIZED for PhonePe Webhook)
 def payment_callback():
     payload = request.get_json() or {}
     logger.info("Payment callback payload: %s", payload)
@@ -317,7 +317,8 @@ def payment_callback():
         update_sales_record(total_cost or 0.0, merchant_order_id, file_url=file_url, copies=copies)
         logger.info("Order %s marked COMPLETED and saved.", merchant_order_id)
         # respond 200 OK to webhook
-        return jsonify({"message": "Order recorded"}), 200
+        # Returning 200 OK immediately as required by PhonePe
+        return jsonify({"message": "Order recorded"}), 200 
     else:
         logger.warning("Payment not successful for %s status=%s", merchant_order_id, status)
         return jsonify({"message": "Payment not successful"}), 200
