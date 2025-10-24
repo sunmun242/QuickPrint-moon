@@ -24,6 +24,12 @@
             border: 2px solid #dc3545;
             color: #dc3545;
         }
+        .status-processing {
+            /* Neutral color for processing state */
+            background-color: #fff9e6;
+            border: 2px solid #ffc107;
+            color: #856404;
+        }
         .status-box h2 {
             margin-top: 0;
             font-size: 2em;
@@ -42,20 +48,34 @@
 
 
     <div class="container main-steps">
-        {% if status == 'SUCCESS' %}
+        {# Handle SUCCESS/COMPLETED status #}
+        {% if status == 'SUCCESS' or status == 'COMPLETED' %}
         <div class="status-box status-success">
             <h2>🎉 Transaction Successful & Print Job Started!</h2>
-            <p>{{ message }}</p>
-            <p>আপনার প্রিন্টিং কাজটি সফলভাবে শুরু করা হয়েছে। কিছুক্ষণের মধ্যেই আপনি প্রিন্ট পাবেন।</p>
+            <p>**{{ message }}**</p>
+            <p>Your print job has been successfully queued and should be available shortly. Please collect your printout from the machine.</p>
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Place New Order</a>
         </div>
-        {% else %}
+
+        {# Handle FAILED status #}
+        {% elif status == 'FAILED' %}
         <div class="status-box status-failed">
-            <h2>❌ Transaction Failed or Print Error</h2>
-            <p>{{ message }}</p>
-            <p>আপনার পেমেন্ট সফল হয়নি অথবা প্রিন্টিং-এ সমস্যা হয়েছে। যদি টাকা কেটে নেওয়া হয়ে থাকে, অনুগ্রহ করে WhatsApp Support-এ যোগাযোগ করুন।</p>
+            <h2>❌ Transaction Failed</h2>
+            <p>**{{ message }}**</p>
+            <p>Your payment attempt was unsuccessful. Please check your payment details and try again.</p>
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #6c757d; margin-top: 20px;">Try Again</a>
-            <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px;">WhatsApp Support</a>
+            <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px; background-color: #28a745;">WhatsApp Support</a>
+        </div>
+        
+        {# Handle PROCESSING (default) status - This is likely the state causing confusion #}
+        {% else %}
+        <div class="status-box status-processing">
+            <h2>⏳ Payment Status: Processing</h2>
+            <p>**{{ message }}**</p>
+            <p>We are waiting for final confirmation from PhonePe. If the payment was successful, the Webhook will confirm it shortly, and your print job will start. If your money was deducted, and the status doesn't change, please contact support.</p>
+            
+            <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Go to Homepage</a>
+            <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px; background-color: #28a745;">WhatsApp Support</a>
         </div>
         {% endif %}
     </div>
@@ -75,7 +95,3 @@
     </footer>
 </body>
 </html>
-
-
-
-
