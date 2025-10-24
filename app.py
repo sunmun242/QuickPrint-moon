@@ -290,32 +290,37 @@ def payment_redirect():
 
 
 # ---------------- Payment callback (Webhook) ----------------
-@app.route('/payment_callback', methods=['POST']) 
-# 🛑 এই লাইনটি সরাতে হবে (Removing @requires_auth to fix 401 UNAUTHORIZED for PhonePe Webhook)
+# 🛑 ফিক্স: @requires_auth সরিয়ে দেওয়া হলো যাতে PhonePe সার্ভার 401 ত্রুটি না পায়
+@app.route('/payment_callback', methods=['POST'])
 def payment_callback():
-    payload = request.get_json() or {}
-    logger.info("Payment callback payload: %s", payload)
+    payload_full = request.get_json() or {}
+    logger.info("Payment callback payload: %s", payload_full)
 
-    # phonepe may send merchantOrderId or orderId
-    merchant_order_id = payload.get('merchantOrderId') or payload.get('orderId') or payload.get('merchantOrderId')
-    status = payload.get('state') or payload.get('status') or payload.get('orderStatus') or payload.get('statusCode')
+    # ✅ ফিক্স: ডেটা 'payload' কি-এর মধ্যে থেকে বের করা
+    data_payload = payload_full.get('payload', {})
+    
+    # merchantOrderId বা orderId খোঁজা, যা data_payload-এর মধ্যে আছে
+    merchant_order_id = data_payload.get('merchantOrderId') or data_payload.get('orderId')
+    
+    # status খোঁজা
+    status = data_payload.get('state') or data_payload.get('status') or data_payload.get('orderStatus') or data_payload.get('statusCode')
 
-    # fallback: if not in callback, just log
+    # যদি merchantOrderId না পাওয়া যায়, তবে সতর্কতা দেখিয়ে 200 OK পাঠানো হবে
     if not merchant_order_id:
-        logger.warning("Callback missing merchantOrderId/orderId")
-        return jsonify({"message": "Callback received"}), 200
+        logger.warning("Callback missing merchantOrderId/orderId in sub-payload.")
+        return jsonify({"message": "Callback received"}), 200 # Webhook must return 200 OK quickly
 
     # If our session has data, create record + mark completed
-    session_data = session.get(merchant_order_id)
-    total_cost = session_data.get('total_cost') if session_data else None
+    session_data = session.get(merchant_order_id) 
+    total_cost = session_data.get('total_cost') if session_data else 0.0
     file_url = session_data.get('file_url') if session_data else None
     copies = session_data.get('copies') if session_data else 1
-
+    
     # Consider 'SUCCESS' or 'COMPLETED' or numeric codes — adapt as needed
     if status and str(status).upper() in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS', '200'):
         # create sales record
-        update_sales_record(total_cost or 0.0, merchant_order_id, file_url=file_url, copies=copies)
-        logger.info("Order %s marked COMPLETED and saved.", merchant_order_id)
+        update_sales_record(total_cost, merchant_order_id, file_url=file_url, copies=copies)
+        logger.info("Order %s marked COMPLETED and saved. Print job should start.", merchant_order_id)
         # respond 200 OK to webhook
         # Returning 200 OK immediately as required by PhonePe
         return jsonify({"message": "Order recorded"}), 200 
