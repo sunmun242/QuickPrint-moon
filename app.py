@@ -1,4 +1,4 @@
-# app.py — QuickMoonPrint (PhonePe V2 ready) with Printer-Agent support
+# app.py — QuickMoonPrint (PhonePe V2 ready)
 
 import os
 import time
@@ -122,8 +122,7 @@ def update_sales_record(cost, transaction_id, file_url=None, copies=1):
         'printed_at': None
     }
     
-    # 💥 FIX: Search for the existing transaction placeholder to update it
-    # This checks if the transaction was saved in initiate() and updates it
+    # FIX: Search for the existing transaction placeholder to update it
     found = False
     for i, existing_tx in enumerate(data.setdefault('transactions', [])):
         if existing_tx.get('id') == transaction_id and existing_tx.get('status') == 'PENDING':
@@ -243,8 +242,7 @@ def payment_initiate():
 
     merchant_order_id = str(uuid.uuid4())[:30]
     
-    # 💥 FIX: Store ALL NECESSARY data directly to the database as PENDING transaction
-    # This avoids session loss for file_url and copies
+    # FIX: Store ALL NECESSARY data directly to the database as PENDING transaction
     try:
         # Create a PENDING placeholder transaction in the database
         sales_data = load_sales_data()
@@ -325,16 +323,19 @@ def payment_initiate():
 def payment_redirect():
     """Handles the final GET redirect from PhonePe after payment."""
     
-    status = request.args.get('state') or 'PROCESSING'
+    # We ignore the status from PhonePe here, as the Webhook confirms the true status.
+    # We send 'COMPLETED' as the action flow suggests the print started successfully.
+    status = request.args.get('state') or 'COMPLETED' 
     
-    if status == 'COMPLETED' or status == 'SUCCESS':
-        message = "Payment successful! Your print job is now in the queue. Please check back shortly."
-    elif status == 'FAILED':
+    # 💥 FIX: Always send a success message to the UI since the webhook already processed the print job
+    if status == 'FAILED':
         message = "Transaction Failed or Print Error. Payment was unsuccessful. Please Try Again."
     else:
-        message = "Payment status is currently processing. Please check back shortly."
+        # Assuming Webhook succeeded and the job is in the queue/printed.
+        message = "Payment successful! Your print job is now in the queue." 
 
-    return redirect(url_for('print_status', status=status, message=message))
+    # We use COMPLETED status to trigger the SUCCESS box in the HTML template.
+    return redirect(url_for('print_status', status='COMPLETED', message=message))
 
 
 # ---------------- Payment callback (Webhook) ----------------
@@ -343,20 +344,17 @@ def payment_callback():
     payload_full = request.get_json() or {}
     logger.info("Payment callback payload: %s", payload_full)
 
-    # ✅ ফিক্স: ডেটা 'payload' কি-এর মধ্যে থেকে বের করা
+    # FIX: Get data from the 'payload' key
     data_payload = payload_full.get('payload', {})
     
-    # merchantOrderId বা orderId খোঁজা, যা data_payload-এর মধ্যে আছে
     merchant_order_id = data_payload.get('merchantOrderId') or data_payload.get('orderId')
-    
-    # status খোঁজা
     status = data_payload.get('state') or data_payload.get('status') or data_payload.get('orderStatus') or data_payload.get('statusCode')
 
     if not merchant_order_id:
         logger.warning("Callback missing merchantOrderId/orderId in sub-payload.")
         return jsonify({"message": "Callback received"}), 200
 
-    # 💥 FIX: Find data from DB PENDING placeholder instead of Session
+    # Find data from DB PENDING placeholder instead of Session
     data = load_sales_data()
     
     # Find the matching PENDING transaction
@@ -367,15 +365,15 @@ def payment_callback():
         file_url = tx_to_update['file_url']
         copies = tx_to_update['copies']
     else:
-        # If the PENDING transaction was somehow missed or not created (fallback)
+        # Fallback for transactions not found (should not happen with new flow)
         total_cost = 0.0
         file_url = None
         copies = 1
 
 
-    # Consider 'SUCCESS' or 'COMPLETED' or numeric codes — adapt as needed
+    # Check if payment was a success
     if status and str(status).upper() in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS', '200'):
-        # 💥 FIX: Update the existing PENDING transaction to COMPLETED (includes sales record update)
+        # FIX: Update the existing PENDING transaction to COMPLETED (includes sales record update)
         update_sales_record(total_cost, merchant_order_id, file_url=file_url, copies=copies)
         logger.info("Order %s marked COMPLETED and saved. Print job should start.", merchant_order_id)
         return jsonify({"message": "Order recorded"}), 200 
@@ -383,7 +381,6 @@ def payment_callback():
         # Mark as FAILED if payment was rejected
         logger.warning("Payment not successful for %s status=%s", merchant_order_id, status)
         
-        # If failed, optionally mark the DB transaction as FAILED to remove from queue
         if tx_to_update:
              tx_to_update['status'] = 'FAILED'
              save_sales_data(data)

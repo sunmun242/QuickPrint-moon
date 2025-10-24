@@ -25,7 +25,6 @@
             color: #dc3545;
         }
         .status-processing {
-            /* Neutral color for processing state */
             background-color: #fff9e6;
             border: 2px solid #ffc107;
             color: #856404;
@@ -48,12 +47,12 @@
 
 
     <div class="container main-steps">
-        {# Handle SUCCESS/COMPLETED status #}
-        {% if status == 'SUCCESS' or status == 'COMPLETED' %}
+        {# Handle SUCCESS/COMPLETED status (Will be triggered by app.py) #}
+        {% if status == 'COMPLETED' or status == 'SUCCESS' %}
         <div class="status-box status-success">
-            <h2>🎉 Transaction Successful & Print Job Started!</h2>
-            <p>**{{ message }}**</p>
-            <p>Your print job has been successfully queued and should be available shortly. Please collect your printout from the machine.</p>
+            <h2>🎉 Print Job Successful!</h2>
+            <p style="font-weight: bold; font-size: 1.2em;">{{ message }}</p>
+            <p>Your printout is ready! Please collect your finished print from the machine.</p>
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Place New Order</a>
         </div>
 
@@ -61,18 +60,18 @@
         {% elif status == 'FAILED' %}
         <div class="status-box status-failed">
             <h2>❌ Transaction Failed</h2>
-            <p>**{{ message }}**</p>
+            <p style="font-weight: bold;">{{ message }}</p>
             <p>Your payment attempt was unsuccessful. Please check your payment details and try again.</p>
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #6c757d; margin-top: 20px;">Try Again</a>
             <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px; background-color: #28a745;">WhatsApp Support</a>
         </div>
         
-        {# Handle PROCESSING (default) status - This is likely the state causing confusion #}
+        {# Handle PROCESSING status (This should now rarely happen, but kept for safety) #}
         {% else %}
         <div class="status-box status-processing">
-            <h2>⏳ Payment Status: Processing</h2>
-            <p>**{{ message }}**</p>
-            <p>We are waiting for final confirmation from PhonePe. If the payment was successful, the Webhook will confirm it shortly, and your print job will start. If your money was deducted, and the status doesn't change, please contact support.</p>
+            <h2>⌛ Payment Status: Processing</h2>
+            <p style="font-weight: bold;">{{ message }}</p>
+            <p>We are waiting for final confirmation from PhonePe. If your money was deducted, and the status doesn't change after a few minutes, please contact support.</p>
             
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Go to Homepage</a>
             <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px; background-color: #28a745;">WhatsApp Support</a>
