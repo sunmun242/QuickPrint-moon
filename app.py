@@ -1,5 +1,3 @@
-# app.py — QuickMoonPrint (PhonePe V2 ready with Dynamic Print Mode and Admin Report)
-
 import os
 import time
 import uuid
@@ -11,7 +9,7 @@ import tempfile
 import requests
 import hashlib
 from functools import wraps
-from datetime import datetime, timedelta # <<< timedelta যোগ করা হলো
+from datetime import datetime, timedelta # timedelta দরকার ডেটা রিটেনশনের জন্য
 from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory, abort, Response, make_response
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -33,7 +31,7 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-for-local')
+app.secret_key = os.environ.get('SECRET_SECRET_KEY', 'dev-secret-for-local') # Changed key name slightly
 
 # --- PhonePe / env ---
 PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID')
@@ -101,7 +99,7 @@ def save_sales_data(data):
     except Exception as e:
         logger.exception("Failed to save sales data: %s", e)
 
-def update_sales_record(cost, transaction_id, file_url=None, copies=1, print_mode='Color'):
+def update_sales_record(cost, transaction_id, file_url=None, copies=1, print_mode='Color', utr_id=None, transaction_ref_id=None):
     data = load_sales_data()
     data['total_orders'] = data.get('total_orders', 0) + 1
     data['total_income'] = float(data.get('total_income', 0.0)) + float(cost or 0.0)
@@ -119,6 +117,8 @@ def update_sales_record(cost, transaction_id, file_url=None, copies=1, print_mod
         'copies': copies,
         'print_mode': print_mode,
         'status': 'COMPLETED',
+        'utr_id': utr_id, # UTR ID
+        'transaction_ref_id': transaction_ref_id, # PhonePe's Transaction ID
         'created_at': datetime.utcnow().isoformat(),
         'printed_at': None
     }
@@ -196,7 +196,6 @@ def admin_login():
             session['admin_logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         else:
-            # Assumes you have an admin_login.html template
             return render_template('admin_login.html', error="Invalid credentials") 
     return render_template('admin_login.html', error=None)
 
@@ -206,57 +205,128 @@ def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login'))
 
-@app.route('/admin/dashboard')
+def filter_and_clean_transactions(transactions, start_date_str=None, end_date_str=None):
+    """
+    Filters transactions by date range and automatically removes data older than 180 days.
+    This fulfills the 180-day retention requirement.
+    """
+    
+    # 1. 180 দিন পরের ডেটা মুছে ফেলার জন্য তারিখ সেট করা
+    cleanup_date = datetime.now() - timedelta(days=180)
+    
+    # 2. ডেট রেঞ্জ কনভার্ট করা (যদি থাকে)
+    start_date = None
+    end_date = None
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        except ValueError: pass
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        except ValueError: pass
+
+    # 3. ট্রানজাকশন ফিল্টার এবং ক্লিন করা
+    filtered_transactions = []
+    retained_transactions = []
+    
+    for tx in transactions:
+        tx_date_str = tx.get('date') # Format YYYY-MM-DD
+        
+        try:
+            tx_dt = datetime.strptime(tx_date_str, '%Y-%m-%d')
+        except:
+            continue # Skip bad data
+
+        # 3a. 180 দিনের পুরানো ডেটা বাদ দেওয়া (Retain only newer data)
+        if tx_dt >= cleanup_date:
+            retained_transactions.append(tx)
+        
+        # 3b. ডেট রেঞ্জ অনুযায়ী ফিল্টার করা (for dashboard display)
+        passes_filter = True
+        if start_date and tx_dt < start_date:
+            passes_filter = False
+        if end_date and tx_dt > end_date:
+            passes_filter = False
+            
+        if passes_filter:
+            filtered_transactions.append(tx)
+    
+    # 4. ডাটাবেস আপডেট করা (শুধু রিটেইন করা ডেটা সেভ করা)
+    data = load_sales_data()
+    data['transactions'] = retained_transactions
+    save_sales_data(data) # This commits the 180-day retention change
+            
+    return filtered_transactions
+
+@app.route('/admin/dashboard', methods=['GET'])
 @requires_admin_auth
 def admin_dashboard():
-    """Renders the admin dashboard with sales reports."""
     data = load_sales_data()
-    transactions = data.get('transactions', [])
+    all_transactions = data.get('transactions', [])
     
+    # Get date range parameters from URL query (GET request)
+    start_date_filter = request.args.get('start_date')
+    end_date_filter = request.args.get('end_date')
+
+    # Apply filtering and cleaning
+    transactions = filter_and_clean_transactions(all_transactions, start_date_filter, end_date_filter)
+    
+    # --- Now recalculate reports based on the FILTERED transactions ---
+    
+    filtered_daily_sales = {}
+    total_income_filtered = 0.0
+    
+    for tx in transactions:
+        tx_date = tx.get('date')
+        cost = float(tx.get('cost', 0.0))
+        
+        if tx.get('status') in ('COMPLETED', 'PRINTED'):
+            total_income_filtered += cost
+            
+            filtered_daily_sales.setdefault(tx_date, {'income': 0.0, 'orders': 0})
+            filtered_daily_sales[tx_date]['income'] += cost
+            filtered_daily_sales[tx_date]['orders'] += 1
+            
     now = datetime.now()
     today_str = now.strftime('%Y-%m-%d')
     current_month_str = now.strftime('%Y-%m')
-    
-    # Calculate Last Month Start Date
     last_month_start = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
     last_month_str = last_month_start.strftime('%Y-%m')
+
+    # Calculate Summary Stats based on filtered data
     
-    # Calculate Summary Stats
-    total_income = data.get('total_income', 0.0)
+    today_income = filtered_daily_sales.get(today_str, {}).get('income', 0.0)
     
-    # Get today's income
-    today_income = data['daily_sales'].get(today_str, {}).get('income', 0.0)
-    
-    # Calculate current month's income
     current_month_income = sum(
-        d.get('income', 0.0) for date_str, d in data['daily_sales'].items() 
+        d.get('income', 0.0) for date_str, d in filtered_daily_sales.items() 
         if date_str.startswith(current_month_str)
     )
     
-    # Calculate last month's income
     last_month_income = sum(
-        d.get('income', 0.0) for date_str, d in data['daily_sales'].items() 
+        d.get('income', 0.0) for date_str, d in filtered_daily_sales.items() 
         if date_str.startswith(last_month_str)
     )
 
     # Prepare Monthly Breakdown
     monthly_sales = {}
-    for date_str, d in data['daily_sales'].items():
+    for date_str, d in filtered_daily_sales.items():
         month_year = date_str[:7] # YYYY-MM
         monthly_sales.setdefault(month_year, {'income': 0.0, 'orders': 0})
         monthly_sales[month_year]['income'] += d.get('income', 0.0)
         monthly_sales[month_year]['orders'] += d.get('orders', 0)
         
-    # Sort months descending (Newest month first)
     sorted_monthly_sales = dict(sorted(monthly_sales.items(), reverse=True))
 
     return render_template('admin_dashboard.html', 
-                           total_income=total_income,
+                           total_income=total_income_filtered, # Filtered Total Income
                            today_income=today_income,
                            current_month_income=current_month_income,
                            last_month_income=last_month_income,
                            monthly_sales=sorted_monthly_sales,
-                           transactions=transactions)
+                           transactions=transactions, # Filtered list of transactions
+                           filter_start_date=start_date_filter,
+                           filter_end_date=end_date_filter)
 
 
 # ---------------- WEBHOOK AND TOKEN HANDLERS ----------------
@@ -415,6 +485,13 @@ def payment_callback():
     
     merchant_order_id = data_payload.get('merchantOrderId') or data_payload.get('orderId')
     status = data_payload.get('state') or data_payload.get('status') or data_payload.get('orderStatus') or data_payload.get('statusCode')
+    
+    # NEW: Extract UTR and Transaction ID from paymentDetails list
+    payment_details = data_payload.get('paymentDetails', [{}])
+    first_payment = payment_details[0] if payment_details else {}
+    
+    utr_id = first_payment.get('rail', {}).get('utr')
+    transaction_ref_id = first_payment.get('transactionId')
 
     if not merchant_order_id:
         logger.warning("Callback missing merchantOrderId/orderId in sub-payload.")
@@ -428,18 +505,19 @@ def payment_callback():
         total_cost = tx_to_update['cost']
         file_url = tx_to_update['file_url']
         copies = tx_to_update['copies']
-        print_mode = tx_to_update.get('print_mode', 'Color') # <<< Load print_mode
+        print_mode = tx_to_update.get('print_mode', 'Color')
     else:
         total_cost = 0.0
         file_url = None
         copies = 1
-        print_mode = 'Color' # Default fallback
+        print_mode = 'Color'
 
 
     # Check if payment was a success
     if status and str(status).upper() in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS', '200'):
         # FIX: Update the existing PENDING transaction to COMPLETED (includes sales record update)
-        update_sales_record(total_cost, merchant_order_id, file_url=file_url, copies=copies, print_mode=print_mode) # <<< Pass print_mode
+        update_sales_record(total_cost, merchant_order_id, file_url=file_url, copies=copies, 
+                            print_mode=print_mode, utr_id=utr_id, transaction_ref_id=transaction_ref_id) # <<< Passing new IDs
         logger.info("Order %s marked COMPLETED and saved. Print job mode: %s.", merchant_order_id, print_mode)
         return jsonify({"message": "Order recorded"}), 200 
     else:
@@ -469,7 +547,7 @@ def pending_prints():
                 'file_url': tx.get('file_url'),
                 'copies': tx.get('copies', 1),
                 'cost': tx.get('cost'),
-                'print_mode': tx.get('print_mode', 'Color'), # <<< Pass print_mode to agent
+                'print_mode': tx.get('print_mode', 'Color'),
                 'created_at': tx.get('created_at')
             })
     return jsonify({'pending': pending}), 200
@@ -501,9 +579,34 @@ def mark_printed():
 # ---------------- Start print route (manual/redirect) ----------------
 @app.route('/start_print', methods=['GET'])
 def start_print():
-    # ... (Manual start print logic - usually not used with agent) ...
-    # Removed for brevity, assuming you rely on printer_agent.py
-    pass 
+    data = request.args.to_dict()
+    file_url = data.get('file_url')
+    copies = int(data.get('copies', 1))
+    txn_id = data.get('transaction_id')
+
+    if os.environ.get('VERCEL'):
+        message = f"Print job (TXN: {txn_id}) submitted (Simulated on cloud)."
+        return redirect(url_for('print_status', status='SUCCESS', message=message))
+
+    try:
+        if not file_url:
+            return redirect(url_for('print_status', status='FAILED', message="Missing file URL"))
+        response = requests.get(file_url, timeout=60)
+        if response.status_code != 200:
+            return redirect(url_for('print_status', status='FAILED', message="File download failed"))
+
+        ext = file_url.split('.')[-1].split('?')[0] or "pdf"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+        tmp.write(response.content)
+        tmp.close()
+
+        for _ in range(copies):
+            subprocess.Popen([SUMATRA_PATH, "-print-to", PRINTER_NAME, tmp.name, "-silent"])
+
+        return redirect(url_for('print_status', status='SUCCESS', message=f"Printing started for TXN {txn_id}"))
+    except Exception as e:
+        logger.exception("Print error: %s", e)
+        return redirect(url_for('print_status', status='FAILED', message=str(e)))
 
 # ---------------- uploads / basic routes ----------------
 @app.route('/')
@@ -528,7 +631,6 @@ def upload_file():
     path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
     file.save(path)
     page_count = count_pages(path)
-    # Return external URL (server must be reachable)
     file_url = url_for('uploaded_file', filename=unique, _external=True)
     return jsonify({
         'success': True,
