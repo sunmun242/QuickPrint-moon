@@ -1,3 +1,5 @@
+# app.py — QuickMoonPrint (Final UI Status Fix)
+
 import os
 import time
 import uuid
@@ -9,7 +11,7 @@ import tempfile
 import requests
 import hashlib
 from functools import wraps
-from datetime import datetime, timedelta # timedelta দরকার ডেটা রিটেনশনের জন্য
+from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory, abort, Response, make_response
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -31,7 +33,7 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-app.secret_key = os.environ.get('SECRET_SECRET_KEY', 'dev-secret-for-local') # Changed key name slightly
+app.secret_key = os.environ.get('SECRET_SECRET_KEY', 'dev-secret-for-local')
 
 # --- PhonePe / env ---
 PHONEPE_CLIENT_ID = os.environ.get('PHONEPE_CLIENT_ID')
@@ -117,8 +119,8 @@ def update_sales_record(cost, transaction_id, file_url=None, copies=1, print_mod
         'copies': copies,
         'print_mode': print_mode,
         'status': 'COMPLETED',
-        'utr_id': utr_id, # UTR ID
-        'transaction_ref_id': transaction_ref_id, # PhonePe's Transaction ID
+        'utr_id': utr_id, 
+        'transaction_ref_id': transaction_ref_id, 
         'created_at': datetime.utcnow().isoformat(),
         'printed_at': None
     }
@@ -208,13 +210,10 @@ def admin_logout():
 def filter_and_clean_transactions(transactions, start_date_str=None, end_date_str=None):
     """
     Filters transactions by date range and automatically removes data older than 180 days.
-    This fulfills the 180-day retention requirement.
     """
     
-    # 1. 180 দিন পরের ডেটা মুছে ফেলার জন্য তারিখ সেট করা
     cleanup_date = datetime.now() - timedelta(days=180)
     
-    # 2. ডেট রেঞ্জ কনভার্ট করা (যদি থাকে)
     start_date = None
     end_date = None
     if start_date_str:
@@ -226,23 +225,20 @@ def filter_and_clean_transactions(transactions, start_date_str=None, end_date_st
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
         except ValueError: pass
 
-    # 3. ট্রানজাকশন ফিল্টার এবং ক্লিন করা
     filtered_transactions = []
     retained_transactions = []
     
     for tx in transactions:
-        tx_date_str = tx.get('date') # Format YYYY-MM-DD
+        tx_date_str = tx.get('date')
         
         try:
             tx_dt = datetime.strptime(tx_date_str, '%Y-%m-%d')
         except:
-            continue # Skip bad data
+            continue
 
-        # 3a. 180 দিনের পুরানো ডেটা বাদ দেওয়া (Retain only newer data)
         if tx_dt >= cleanup_date:
             retained_transactions.append(tx)
         
-        # 3b. ডেট রেঞ্জ অনুযায়ী ফিল্টার করা (for dashboard display)
         passes_filter = True
         if start_date and tx_dt < start_date:
             passes_filter = False
@@ -252,10 +248,9 @@ def filter_and_clean_transactions(transactions, start_date_str=None, end_date_st
         if passes_filter:
             filtered_transactions.append(tx)
     
-    # 4. ডাটাবেস আপডেট করা (শুধু রিটেইন করা ডেটা সেভ করা)
     data = load_sales_data()
     data['transactions'] = retained_transactions
-    save_sales_data(data) # This commits the 180-day retention change
+    save_sales_data(data)
             
     return filtered_transactions
 
@@ -265,14 +260,10 @@ def admin_dashboard():
     data = load_sales_data()
     all_transactions = data.get('transactions', [])
     
-    # Get date range parameters from URL query (GET request)
     start_date_filter = request.args.get('start_date')
     end_date_filter = request.args.get('end_date')
 
-    # Apply filtering and cleaning
     transactions = filter_and_clean_transactions(all_transactions, start_date_filter, end_date_filter)
-    
-    # --- Now recalculate reports based on the FILTERED transactions ---
     
     filtered_daily_sales = {}
     total_income_filtered = 0.0
@@ -294,8 +285,6 @@ def admin_dashboard():
     last_month_start = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
     last_month_str = last_month_start.strftime('%Y-%m')
 
-    # Calculate Summary Stats based on filtered data
-    
     today_income = filtered_daily_sales.get(today_str, {}).get('income', 0.0)
     
     current_month_income = sum(
@@ -308,10 +297,9 @@ def admin_dashboard():
         if date_str.startswith(last_month_str)
     )
 
-    # Prepare Monthly Breakdown
     monthly_sales = {}
     for date_str, d in filtered_daily_sales.items():
-        month_year = date_str[:7] # YYYY-MM
+        month_year = date_str[:7] 
         monthly_sales.setdefault(month_year, {'income': 0.0, 'orders': 0})
         monthly_sales[month_year]['income'] += d.get('income', 0.0)
         monthly_sales[month_year]['orders'] += d.get('orders', 0)
@@ -319,12 +307,12 @@ def admin_dashboard():
     sorted_monthly_sales = dict(sorted(monthly_sales.items(), reverse=True))
 
     return render_template('admin_dashboard.html', 
-                           total_income=total_income_filtered, # Filtered Total Income
+                           total_income=total_income_filtered, 
                            today_income=today_income,
                            current_month_income=current_month_income,
                            last_month_income=last_month_income,
                            monthly_sales=sorted_monthly_sales,
-                           transactions=transactions, # Filtered list of transactions
+                           transactions=transactions, 
                            filter_start_date=start_date_filter,
                            filter_end_date=end_date_filter)
 
@@ -337,7 +325,6 @@ def get_phonepe_token():
     if _token_cache.get('access_token') and _token_cache.get('expires_at', 0) - 30 > now:
         return _token_cache['access_token']
 
-    # Use the appropriate client details based on environment configuration
     client_id = PHONEPE_CLIENT_ID
     client_secret = PHONEPE_CLIENT_SECRET
     client_version = PHONEPE_CLIENT_VERSION
@@ -378,7 +365,6 @@ def payment_initiate():
 
     merchant_order_id = str(uuid.uuid4())[:30]
     
-    # 🛑 FIX: Get print mode from incoming data, defaulting to 'Color'
     print_mode = data.get('printMode', 'Color')
     
     # Store ALL NECESSARY data directly to the database as PENDING transaction
@@ -388,9 +374,9 @@ def payment_initiate():
             'id': merchant_order_id,
             'date': time.strftime('%Y-%m-%d'),
             'cost': data.get('totalCost'),
-            'file_url': data.get('file_url'), # Saved directly to DB
-            'copies': data.get('copies', 1), # Saved directly to DB
-            'print_mode': print_mode,        # <<< Saved directly to DB
+            'file_url': data.get('file_url'), 
+            'copies': data.get('copies', 1), 
+            'print_mode': print_mode,        
             'status': 'PENDING',
             'created_at': datetime.utcnow().isoformat(),
             'printed_at': None
@@ -414,7 +400,6 @@ def payment_initiate():
         "amount": amount_paise,
         "expireAfter": 1200,
         "metaInfo": {
-            # Added print_mode to UDF for debugging/tracking
             "udf1": "Mode: " + print_mode,
             "udf2": "PrintJob Copy Count",
             "udf3": "PrintJob Page Count",
@@ -463,15 +448,22 @@ def payment_initiate():
 def payment_redirect():
     """Handles the final GET redirect from PhonePe after payment."""
     
-    status = request.args.get('state') or 'COMPLETED' 
-    
-    if status == 'FAILED':
-        message = "Transaction Failed or Print Error. Payment was unsuccessful. Please Try Again."
-    else:
-        # Assuming Webhook succeeded and the job is in the queue/printed.
-        message = "Payment successful! Your print job is now in the queue." 
+    # ✅ FIX: Use actual status from PhonePe URL
+    status = request.args.get('status') or request.args.get('state') or 'PROCESSING'
+    status_upper = status.upper()
 
-    return redirect(url_for('print_status', status='COMPLETED', message=message))
+    if status_upper in ('COMPLETED', 'SUCCESS'):
+        # Payment succeeded, but print process needs time (Processing state in UI)
+        message = "Payment successful. Your print job is now in the queue."
+        status_code = 'PROCESSING' # Sending PROCESSING to show the waiting message first
+    elif status_upper == 'FAILED':
+        message = "Transaction Failed. Your payment was unsuccessful. Please check your PIN/details and Try Again."
+        status_code = 'FAILED'
+    else:
+        message = "Payment status is currently processing. Please check back shortly."
+        status_code = 'PROCESSING'
+
+    return redirect(url_for('print_status', status=status_code, message=message))
 
 
 # ---------------- Payment callback (Webhook) ----------------
@@ -480,18 +472,18 @@ def payment_callback():
     payload_full = request.get_json() or {}
     logger.info("Payment callback payload: %s", payload_full)
 
-    # FIX: Get data from the 'payload' key
     data_payload = payload_full.get('payload', {})
     
     merchant_order_id = data_payload.get('merchantOrderId') or data_payload.get('orderId')
     status = data_payload.get('state') or data_payload.get('status') or data_payload.get('orderStatus') or data_payload.get('statusCode')
     
-    # NEW: Extract UTR and Transaction ID from paymentDetails list
+    # NEW: Extract UTR and Transaction ID
     payment_details = data_payload.get('paymentDetails', [{}])
     first_payment = payment_details[0] if payment_details else {}
     
     utr_id = first_payment.get('rail', {}).get('utr')
     transaction_ref_id = first_payment.get('transactionId')
+
 
     if not merchant_order_id:
         logger.warning("Callback missing merchantOrderId/orderId in sub-payload.")
@@ -517,7 +509,7 @@ def payment_callback():
     if status and str(status).upper() in ('COMPLETED', 'SUCCESS', 'PAYMENT_SUCCESS', '200'):
         # FIX: Update the existing PENDING transaction to COMPLETED (includes sales record update)
         update_sales_record(total_cost, merchant_order_id, file_url=file_url, copies=copies, 
-                            print_mode=print_mode, utr_id=utr_id, transaction_ref_id=transaction_ref_id) # <<< Passing new IDs
+                            print_mode=print_mode, utr_id=utr_id, transaction_ref_id=transaction_ref_id)
         logger.info("Order %s marked COMPLETED and saved. Print job mode: %s.", merchant_order_id, print_mode)
         return jsonify({"message": "Order recorded"}), 200 
     else:

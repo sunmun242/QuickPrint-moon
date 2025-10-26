@@ -47,7 +47,7 @@
 
 
     <div class="container main-steps">
-        {# Handle SUCCESS/COMPLETED status (Will be triggered by app.py) #}
+        {# Handle SUCCESS/COMPLETED status (Final confirmation that print has started/completed) #}
         {% if status == 'COMPLETED' or status == 'SUCCESS' %}
         <div class="status-box status-success">
             <h2>🎉 Print Job Successful!</h2>
@@ -56,22 +56,24 @@
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Place New Order</a>
         </div>
 
-        {# Handle FAILED status #}
+        {# Handle FAILED status (Payment Rejected) #}
         {% elif status == 'FAILED' %}
         <div class="status-box status-failed">
             <h2>❌ Transaction Failed</h2>
             <p style="font-weight: bold;">{{ message }}</p>
-            <p>Your payment attempt was unsuccessful. Please check your payment details and try again.</p>
+            <p>Your payment attempt was unsuccessful. Please re-check your payment details or try a different method.</p>
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #6c757d; margin-top: 20px;">Try Again</a>
             <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px; background-color: #28a745;">WhatsApp Support</a>
         </div>
         
-        {# Handle PROCESSING status (This should now rarely happen, but kept for safety) #}
+        {# Handle PROCESSING status (Waiting for Webhook/Agent to finish print) #}
         {% else %}
         <div class="status-box status-processing">
             <h2>⌛ Payment Status: Processing</h2>
             <p style="font-weight: bold;">{{ message }}</p>
-            <p>We are waiting for final confirmation from PhonePe. If your money was deducted, and the status doesn't change after a few minutes, please contact support.</p>
+            
+            <p>Your payment was successful, and the print job has been sent to the queue. If the print does not start within **5 minutes** (due to a printer or network issue), please check the machine.</p>
+            <p style="font-weight: bold; margin-top: 15px;">If you face any trouble, please contact us:</p>
             
             <a href="{{ url_for('index') }}" class="primary-button" style="background-color: #007bff; margin-top: 20px;">Go to Homepage</a>
             <a href="https://wa.me/917063312134" target="_blank" class="primary-button" style="margin-top: 10px; background-color: #28a745;">WhatsApp Support</a>
